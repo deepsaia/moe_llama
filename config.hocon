@@ -1,0 +1,28 @@
+{
+  # Model architecture configuration
+  model {
+    vocab_size = 100  # Will be updated after tokenizer is created
+    dim = 256         # Model dimension
+    num_layers = 4    # Number of transformer layers
+    num_heads = 8     # Number of attention heads
+    num_experts = 8   # Number of experts in MoE layer
+    top_k = 2         # Number of experts to select per token
+    max_seq_len = 128 # Maximum sequence length
+    dropout = 0.1     # Dropout rate
+    shared_expert = true  # Include a shared expert
+    load_balancing_loss_coef = 0.01  # Coefficient for load balancing loss
+  }
+  
+  # Inference configuration
+  inference {
+    max_new_tokens = 50
+    temperature = 0.7
+    top_k = null
+    top_p = null
+  }
+  
+  # Paths configuration
+  paths {
+    model_path = "./llama4_moe_model"
+  }
+}

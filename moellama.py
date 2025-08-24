@@ -83,9 +83,20 @@ class CharacterTokenizer:
     
     def save_vocab(self, file_path):
         """Save vocabulary to file"""
-        with open(file_path, 'w') as f:
+        with open(file_path, 'w', encoding='utf-8') as f:
             for char, idx in sorted(self.stoi.items(), key=lambda x: x[1]):
-                f.write(f"{char}\t{idx}\n")
+                # Escape special characters for reliable parsing
+                escaped_char = char
+                if char == '\t':
+                    escaped_char = '\\t'
+                elif char == '\n':
+                    escaped_char = '\\n'
+                elif char == '\r':
+                    escaped_char = '\\r'
+                elif char == '\\':
+                    escaped_char = '\\\\'
+                
+                f.write(f"{escaped_char}\t{idx}\n")
         logger.info(f"Vocabulary saved to {file_path}")
     
     def load_vocab(self, file_path):
@@ -94,21 +105,66 @@ class CharacterTokenizer:
         self.stoi = {}
         self.itos = {}
         
-        with open(file_path, 'r') as f:
-            for line in f:
-                char, idx = line.strip().split('\t')
-                idx = int(idx)
-                self.stoi[char] = idx
-                self.itos[idx] = char
-        
-        self.vocab_size = len(self.stoi)
-        self.pad_token = '<pad>'
-        self.eos_token = '<eos>'
-        self.unk_token = '<unk>'
-        
-        self.pad_token_id = self.stoi.get(self.pad_token, 0)
-        self.eos_token_id = self.stoi.get(self.eos_token, 1)
-        self.unk_token_id = self.stoi.get(self.unk_token, 2)
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                line_number = 0
+                for line in f:
+                    line_number += 1
+                    line = line.strip()
+                    
+                    # Skip empty lines
+                    if not line:
+                        continue
+                        
+                    # Split on the first tab only (in case the character is a tab)
+                    parts = line.split('\t', 1)
+                    
+                    if len(parts) != 2:
+                        logger.warning(f"Skipping invalid line {line_number} in vocabulary file: '{line}'")
+                        continue
+                        
+                    escaped_char, idx_str = parts
+                    
+                    # Unescape special characters
+                    char = escaped_char
+                    if char == '\\t':
+                        char = '\t'
+                    elif char == '\\n':
+                        char = '\n'
+                    elif char == '\\r':
+                        char = '\r'
+                    elif char == '\\\\':
+                        char = '\\'
+                    
+                    try:
+                        idx = int(idx_str)
+                        self.stoi[char] = idx
+                        self.itos[idx] = char
+                    except ValueError:
+                        logger.warning(f"Invalid index on line {line_number}: '{idx_str}'")
+                        continue
+            
+            if len(self.stoi) == 0:
+                raise ValueError("No valid vocabulary entries found in file")
+                
+            self.vocab_size = len(self.stoi)
+            self.pad_token = '<pad>'
+            self.eos_token = '<eos>'
+            self.unk_token = '<unk>'
+            
+            # Set token IDs with defaults if tokens don't exist
+            self.pad_token_id = self.stoi.get(self.pad_token, 0)
+            self.eos_token_id = self.stoi.get(self.eos_token, 1)
+            self.unk_token_id = self.stoi.get(self.unk_token, 2)
+            
+            logger.info(f"Successfully loaded vocabulary with {self.vocab_size} tokens")
+            
+        except FileNotFoundError:
+            logger.error(f"Vocabulary file not found: {file_path}")
+            raise
+        except Exception as e:
+            logger.error(f"Error loading vocabulary from {file_path}: {str(e)}")
+            raise
 
 
 class RotaryPositionalEmbeddings(nn.Module):
@@ -249,12 +305,15 @@ class Router(nn.Module):
             
             # Get top-k experts from regular experts
             top_k_logits, top_k_indices = torch.topk(expert_logits, k=self.top_k, dim=-1)
+
+            # Create a 2D tensor for shared expert indices with the same shape as shared_logits
+            shared_indices = torch.full_like(shared_logits, self.num_experts)
             
             # Combine with shared expert (always included)
             top_k_logits = torch.cat([top_k_logits, shared_logits], dim=-1)
             top_k_indices = torch.cat([
                 top_k_indices, 
-                torch.full_like(shared_logits.squeeze(-1).long(), self.num_experts)
+                shared_indices.long()
             ], dim=-1)
         else:
             top_k_logits, top_k_indices = torch.topk(router_logits, k=self.top_k, dim=-1)
@@ -565,6 +624,7 @@ class LLaMA4MoE(nn.Module):
         self.max_seq_len = max_seq_len
         self.load_balancing_loss_coef = load_balancing_loss_coef
         self.shared_expert = shared_expert
+        self.num_experts = num_experts
         
         logger.info(f"Initializing LLaMA4MoE with vocab_size={vocab_size}, dim={dim}, "
                    f"num_layers={num_layers}, num_heads={num_heads}, num_experts={num_experts}, "
@@ -852,7 +912,7 @@ class LLaMA4Trainer:
                 input_ids = batch.to(self.device)
                 
                 # Forward pass
-                outputs = self.model(input_ids, training=True)
+                outputs = self.model(input_ids, labels=input_ids, training=True)
                 loss = outputs["loss"]
                 load_balancing_loss = outputs["load_balancing_loss"]
                 
@@ -916,7 +976,7 @@ class LLaMA4Trainer:
                 input_ids = batch.to(self.device)
                 
                 # Forward pass
-                outputs = self.model(input_ids, training=False)
+                outputs = self.model(input_ids, labels=input_ids, training=False)
                 loss = outputs["loss"]
                 
                 # Count tokens (excluding padding)
