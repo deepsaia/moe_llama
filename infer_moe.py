@@ -43,6 +43,13 @@ def load_config(config_path="config.hocon"):
         logger.info(f"  max_seq_len: {config['model']['max_seq_len']}")
         logger.info(f"  shared_expert: {config['model']['shared_expert']}")
         
+        logger.info("Device configuration:")
+        logger.info(f"  type: {config.get('device', {}).get('type', 'auto')}")
+        logger.info(f"  num_cpu_threads: {config.get('device', {}).get('num_cpu_threads', 4)}")
+        logger.info(f"  num_cpu_interop_threads: {config.get('device', {}).get('num_cpu_interop_threads', 2)}")
+        logger.info(f"  gpu_ids: {config.get('device', {}).get('gpu_ids', [0])}")
+        logger.info(f"  use_mps: {config.get('device', {}).get('use_mps', True)}")
+        
         logger.info("Inference configuration:")
         logger.info(f"  max_new_tokens: {config['inference']['max_new_tokens']}")
         logger.info(f"  temperature: {config['inference']['temperature']}")
@@ -54,6 +61,45 @@ def load_config(config_path="config.hocon"):
         logger.error(f"Failed to parse configuration file: {str(e)}")
         raise
 
+def setup_device(config):
+    """Configure device settings based on configuration"""
+    device_config = config.get('device', {})
+    
+    # Set CPU thread configuration
+    num_threads = device_config.get('num_cpu_threads', 4)
+    if num_threads == -1:
+        num_threads = os.cpu_count() - 2
+    num_interop_threads = device_config.get('num_cpu_interop_threads', 2)
+    
+    logger.info(f"Setting CPU threads: {num_threads} intra-op, {num_interop_threads} inter-op")
+    torch.set_num_threads(num_threads)
+    torch.set_num_interop_threads(num_interop_threads)
+    
+    # Determine device type
+    device_type = device_config.get('type', 'auto')
+    use_mps = device_config.get('use_mps', True)
+    
+    # Check for MPS (Apple Silicon)
+    if device_type == 'auto' and use_mps and hasattr(torch, 'mps') and torch.mps.is_available():
+        device = torch.device('mps')
+        logger.info("Using Apple MPS (Metal Performance Shaders) for acceleration")
+    # Check for CUDA
+    elif device_type == 'auto' and torch.cuda.is_available():
+        device = torch.device('cuda')
+        logger.info(f"Using CUDA device: {torch.cuda.get_device_name(0)}")
+    # Explicit device types
+    elif device_type == 'cuda' and torch.cuda.is_available():
+        device = torch.device('cuda')
+        logger.info(f"Using CUDA device: {torch.cuda.get_device_name(0)}")
+    elif device_type == 'mps' and hasattr(torch, 'mps') and torch.mps.is_available():
+        device = torch.device('mps')
+        logger.info("Using Apple MPS (Metal Performance Shaders) for acceleration")
+    else:
+        device = torch.device('cpu')
+        logger.info("Using CPU for computation")
+    
+    return device
+
 def load_model_and_tokenizer(config):
     """
     Load a trained model and its tokenizer from disk using configuration.
@@ -64,12 +110,13 @@ def load_model_and_tokenizer(config):
     Returns:
         model: The loaded LLaMA4MoE model
         tokenizer: The loaded CharacterTokenizer
+        device: The device the model is on
     """
     model_path = config['paths']['model_path']
     logger.info(f"Loading model from {model_path}")
     
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    logger.info(f"Using device: {device}")
+    # Set up device based on configuration
+    device = setup_device(config)
     
     # First, load the tokenizer to get vocab size
     tokenizer_path = Path(model_path) / "vocab.txt"
@@ -278,63 +325,75 @@ def interactive_inference(config_path="config.hocon", model_path=None):
         default_top_p = config['inference'].get('top_p', None)
         
         while True:
-            prompt = input("\nPrompt: ")
-            if prompt.lower() == 'exit':
-                break
-            
-            # Get user input for generation parameters with defaults from config
-            max_new_tokens = int(input(f"Max new tokens (default {default_max_new_tokens}): ") 
-                               or default_max_new_tokens)
-            temperature = float(input(f"Temperature (default {default_temperature}): ") 
-                              or default_temperature)
-            top_k_input = input(f"Top-k (default {default_top_k}): ").strip()
-            top_k = int(top_k_input) if top_k_input else default_top_k
-            top_p_input = input(f"Top-p (default {default_top_p}): ").strip()
-            top_p = float(top_p_input) if top_p_input else default_top_p
-            
-            print("\nGenerating...")
-            
-            result = generate_text(
-                prompt,
-                config_path=config_path,
-                model_path=model_path,
-                return_details=True
-            )
-            
-            print("\n=== Generated Text ===")
-            print(result["text"])
-            print("\n=== New Completion ===")
-            print(result["completion"])
-            print(f"\nStats: {result['total_tokens']} total tokens, "
-                 f"{result['tokens_per_second']:.2f} tokens/sec")
+            try:
+                prompt = input("\nPrompt: ")
+                if not prompt or prompt.lower() == 'exit':
+                    break
+                
+                # Get user input for generation parameters with defaults from config
+                max_new_tokens_input = input(f"Max new tokens (default {default_max_new_tokens}): ").strip()
+                max_new_tokens = int(max_new_tokens_input) if max_new_tokens_input else default_max_new_tokens
+                
+                temperature_input = input(f"Temperature (default {default_temperature}): ").strip()
+                temperature = float(temperature_input) if temperature_input else default_temperature
+                
+                top_k_input = input(f"Top-k (default {default_top_k}): ").strip()
+                top_k = int(top_k_input) if top_k_input else default_top_k
+                
+                top_p_input = input(f"Top-p (default {default_top_p}): ").strip()
+                top_p = float(top_p_input) if top_p_input else default_top_p
+                
+                print("\nGenerating...")
+                
+                result = generate_text(
+                    prompt,
+                    config_path=config_path,
+                    model_path=model_path,
+                    return_details=True
+                )
+                
+                print("\n=== Generated Text ===")
+                print(result["text"])
+                print("\n=== New Completion ===")
+                print(result["completion"])
+                print(f"\nStats: {result['total_tokens']} total tokens, "
+                     f"{result['tokens_per_second']:.2f} tokens/sec")
+                     
+            except KeyboardInterrupt:
+                print("\nInterrupted by user. Type 'exit' to quit.")
+                continue
+            except Exception as e:
+                logger.error(f"Error generating text: {str(e)}")
+                print(f"Error generating text: {str(e)}")
+                continue
     
     except KeyboardInterrupt:
         logger.info("\nInteractive session terminated by user")
     except Exception as e:
         logger.error(f"Error in interactive session: {str(e)}")
+        print(f"Error in interactive session: {str(e)}")
     finally:
         logger.info("Interactive session ended")
 
-if __name__ == "__main__":
-    # Example usage
+def main():
+    """Main function to run the inference script"""
     parser = argparse.ArgumentParser(description="Text generation demo")
     parser.add_argument(
         "--im",
         action="store_true",
         help="Run in interactive mode"
     )
-    parser.add_argument(
-        "--prompt",
-        type=str,
-        help="Provide a one-off prompt for generation"
-    )
+    parser.add_argument("--config", type=str, default="config.hocon", help="Path to the configuration file")
+    parser.add_argument("--model-path", type=str, default=None, help="Path to the model directory (overrides config)")
+    parser.add_argument("--prompt", type=str, help="Provide a one-off prompt for generation")
+    
     args = parser.parse_args()
 
     if args.im:
-        interactive_inference()
+        interactive_inference(config_path=args.config, model_path=args.model_path)
     elif args.prompt:
         print(f"=== Prompt Mode ===")
-        result = generate_text(args.prompt, return_details=True)
+        result = generate_text(args.prompt, config_path=args.config, model_path=args.model_path, return_details=True)
         print(f"Prompt: '{result['prompt']}'")
         print(f"Completion: '{result['completion']}'")
         print(f"Stats: {result['total_tokens']} total tokens, "
@@ -343,6 +402,8 @@ if __name__ == "__main__":
         print("=== Basic Generation Example ===")
         generated_text = generate_text(
             "The future of AI is",
+            config_path=args.config,
+            model_path=args.model_path
         )
         print(f"Prompt: 'The future of AI is'")
         print(f"Generated: {generated_text[len('The future of AI is'):]}\n")
@@ -350,9 +411,16 @@ if __name__ == "__main__":
         print("=== Detailed Generation Example ===")
         result = generate_text(
             "To be or not to be",
+            config_path=args.config,
+            model_path=args.model_path,
             return_details=True
         )
         print(f"Prompt: '{result['prompt']}'")
         print(f"Completion: '{result['completion']}'")
         print(f"Stats: {result['total_tokens']} total tokens, "
              f"{result['tokens_per_second']:.2f} tokens/sec\n")
+
+if __name__ == "__main__":
+    # Set random seed for reproducibility
+    torch.manual_seed(42)
+    main()

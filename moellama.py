@@ -16,6 +16,8 @@ from collections import Counter
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
+import argparse
+from pyhocon import ConfigFactory
 
 # Configure logging
 logging.basicConfig(
@@ -178,7 +180,6 @@ class CharacterTokenizer:
         except Exception as e:
             logger.error(f"Error loading vocabulary from {file_path}: {str(e)}")
             raise
-
 
 class RotaryPositionalEmbeddings(nn.Module):
     """Rotary Positional Embeddings (RoPE) as mentioned in the knowledge base"""
@@ -637,6 +638,7 @@ class LLaMA4MoE(nn.Module):
         self.max_seq_len = max_seq_len
         self.load_balancing_loss_coef = load_balancing_loss_coef
         self.shared_expert = shared_expert
+        # Add num_experts attribute to fix the attribute error
         self.num_experts = num_experts
         
         logger.info(f"Initializing LLaMA4MoE with vocab_size={vocab_size}, dim={dim}, "
@@ -872,12 +874,23 @@ class TextDataset(Dataset):
 class LLaMA4Trainer:
     """Trainer for the LLaMA 4 MoE model"""
     
-    def __init__(self, model, tokenizer, optimizer, device='cuda' if torch.cuda.is_available() else 'cpu'):
+    def __init__(self, model, tokenizer, optimizer, device='cuda' if torch.cuda.is_available() else 'cpu', 
+                 use_data_parallel=False, gpu_ids=None):
         self.model = model
         self.tokenizer = tokenizer
         self.optimizer = optimizer
         self.device = device
-        self.model.to(device)
+        self.use_data_parallel = use_data_parallel
+        self.gpu_ids = gpu_ids
+        
+        # Set up DataParallel if requested and multiple GPUs are available
+        if use_data_parallel and gpu_ids and len(gpu_ids) > 1 and torch.cuda.is_available():
+            logger.info(f"Using DataParallel with GPUs: {gpu_ids}")
+            self.model = nn.DataParallel(self.model, device_ids=gpu_ids)
+            self.model.to(device)
+        else:
+            self.model.to(device)
+        
         logger.info(f"Initialized trainer with device: {device}")
         
         # Training history
@@ -888,7 +901,8 @@ class LLaMA4Trainer:
         }
     
     def train(self, train_dataset, eval_dataset=None, batch_size=16, 
-              epochs=3, eval_steps=100, save_steps=None, output_dir='./model'):
+              epochs=3, eval_steps=100, save_steps=None, output_dir='./model',
+              num_workers=4):
         """
         Train the model
         
@@ -900,6 +914,7 @@ class LLaMA4Trainer:
             eval_steps: Evaluate every eval_steps steps
             save_steps: Save model every save_steps steps
             output_dir: Directory to save model
+            num_workers: Number of workers for data loading
         """
         logger.info("Starting training process")
         logger.info(f"Training configuration: batch_size={batch_size}, epochs={epochs}, "
@@ -907,7 +922,7 @@ class LLaMA4Trainer:
         
         # Create data loaders
         train_loader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True, num_workers=2
+            train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
         )
         
         # Training loop
@@ -924,7 +939,7 @@ class LLaMA4Trainer:
                 # Move batch to device
                 input_ids = batch.to(self.device)
                 
-                # Forward pass
+                # Forward pass - labels should be the same as input_ids for language modeling
                 outputs = self.model(input_ids, labels=input_ids, training=True)
                 loss = outputs["loss"]
                 load_balancing_loss = outputs["load_balancing_loss"]
@@ -953,7 +968,7 @@ class LLaMA4Trainer:
                 
                 # Evaluate periodically
                 if eval_dataset and global_step % eval_steps == 0:
-                    eval_loss, eval_ppl = self.evaluate(eval_dataset, batch_size)
+                    eval_loss, eval_ppl = self.evaluate(eval_dataset, batch_size, num_workers)
                     logger.info(f"Step {global_step} | Eval Loss: {eval_loss:.4f} | Perplexity: {eval_ppl:.2f}")
                     
                     # Save history
@@ -973,12 +988,12 @@ class LLaMA4Trainer:
             avg_lb_loss = sum(epoch_load_balancing_losses) / len(epoch_load_balancing_losses)
             logger.info(f"Epoch {epoch+1} completed | Avg Loss: {avg_loss:.4f} | Avg LB Loss: {avg_lb_loss:.4f}")
     
-    def evaluate(self, eval_dataset, batch_size=16):
+    def evaluate(self, eval_dataset, batch_size=16, num_workers=4):
         """Evaluate the model on a dataset"""
         logger.info("Starting evaluation")
         self.model.eval()
         eval_loader = DataLoader(
-            eval_dataset, batch_size=batch_size, shuffle=False, num_workers=2
+            eval_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
         )
         
         total_loss = 0
@@ -988,7 +1003,7 @@ class LLaMA4Trainer:
             for batch in eval_loader:
                 input_ids = batch.to(self.device)
                 
-                # Forward pass
+                # Forward pass - labels should be the same as input_ids for language modeling
                 outputs = self.model(input_ids, labels=input_ids, training=False)
                 loss = outputs["loss"]
                 
@@ -1011,8 +1026,9 @@ class LLaMA4Trainer:
         import os
         os.makedirs(output_dir, exist_ok=True)
         
-        # Save model
-        torch.save(self.model.state_dict(), f"{output_dir}/model.pt")
+        # Save model - handle DataParallel case
+        model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
+        torch.save(model_to_save.state_dict(), f"{output_dir}/model.pt")
         
         # Save tokenizer
         self.tokenizer.save_vocab(f"{output_dir}/vocab.txt")
@@ -1085,26 +1101,23 @@ def download_tiny_shakespeare(data_dir="data"):
         raise
 
 
-def prepare_dataset(dataset_name="tiny_shakespeare", tokenizer=None, seq_len=128, max_samples=None, data_dir="data"):
+def prepare_dataset(config, tokenizer=None):
     """
-    Prepare dataset for training
+    Prepare dataset for training using configuration
     
     Args:
-        dataset_name: Name of the dataset from Hugging Face
-        tokenizer: Tokenizer to use (if None, will create a new one)
-        seq_len: Sequence length
-        max_samples: Maximum number of samples to use
-        data_dir: Directory to store downloaded datasets
+        config: Configuration object with training section
+        tokenizer: Optional tokenizer to use (if None, will create a new one)
         
     Returns:
         train_dataset, eval_dataset, tokenizer
     """
-    logger.info(f"Preparing dataset: {dataset_name}")
+    logger.info(f"Preparing dataset: {config['training']['dataset']}")
     
     # Load dataset
-    if dataset_name == "tiny_shakespeare":
+    if config['training']['dataset'] == "tiny_shakespeare":
         # Tiny Shakespeare dataset (download directly)
-        text = download_tiny_shakespeare(data_dir)
+        text = download_tiny_shakespeare(config['training']['data_dir'])
         
         # Split into train and validation
         train_size = int(0.9 * len(text))
@@ -1118,23 +1131,20 @@ def prepare_dataset(dataset_name="tiny_shakespeare", tokenizer=None, seq_len=128
             tokenizer = CharacterTokenizer(train_text)
         
         # Create datasets
-        train_dataset = TextDataset([train_text], tokenizer, seq_len=seq_len)
-        eval_dataset = TextDataset([eval_text], tokenizer, seq_len=seq_len)
+        train_dataset = TextDataset([train_text], tokenizer, seq_len=config['training']['seq_len'])
+        eval_dataset = TextDataset([eval_text], tokenizer, seq_len=config['training']['seq_len'])
         
         return train_dataset, eval_dataset, tokenizer
     
     else:
         # Load from Hugging Face datasets
-        logger.info(f"Loading dataset '{dataset_name}' from Hugging Face")
+        logger.info(f"Loading dataset '{config['training']['dataset']}' from Hugging Face")
         try:
             from datasets import load_dataset
-            dataset = load_dataset(dataset_name)
+            dataset = load_dataset(config['training']['dataset'])
             
             # For demonstration, use a small portion of the dataset
-            if max_samples:
-                dataset = dataset["train"].select(range(min(max_samples, len(dataset["train"]))))
-            else:
-                dataset = dataset["train"]
+            dataset = dataset["train"]
             
             # Extract text (assuming 'text' column)
             texts = dataset["text"]
@@ -1154,80 +1164,155 @@ def prepare_dataset(dataset_name="tiny_shakespeare", tokenizer=None, seq_len=128
             logger.info(f"Dataset split: train={len(train_texts)} examples, eval={len(eval_texts)} examples")
             
             # Create datasets
-            train_dataset = TextDataset(train_texts, tokenizer, seq_len=seq_len)
-            eval_dataset = TextDataset(eval_texts, tokenizer, seq_len=seq_len)
+            train_dataset = TextDataset(train_texts, tokenizer, seq_len=config['training']['seq_len'])
+            eval_dataset = TextDataset(eval_texts, tokenizer, seq_len=config['training']['seq_len'])
             
             return train_dataset, eval_dataset, tokenizer
         except Exception as e:
-            logger.error(f"Failed to load dataset '{dataset_name}': {str(e)}")
+            logger.error(f"Failed to load dataset '{config['training']['dataset']}': {str(e)}")
             raise
 
 
-def main():
-    """Main function to train and evaluate the model"""
-    # Configuration
-    config = {
-        "vocab_size": 100,  # Will be updated after tokenizer is created
-        "dim": 256,         # Model dimension
-        "num_layers": 4,    # Number of transformer layers
-        "num_heads": 8,     # Number of attention heads
-        "num_experts": 8,   # Number of experts in MoE layer
-        "top_k": 2,         # Number of experts to select per token
-        "max_seq_len": 128, # Maximum sequence length
-        "dropout": 0.1,     # Dropout rate
-        "shared_expert": True,  # Include a shared expert
-        "load_balancing_loss_coef": 0.01,  # Coefficient for load balancing loss
-        "batch_size": 16,
-        "learning_rate": 3e-4,
-        "epochs": 3,
-        "eval_steps": 100,
-        "dataset": "tiny_shakespeare",  # Can be changed to other datasets
-        "seq_len": 128,
-        "data_dir": "data"  # Directory to store datasets
-    }
+def setup_device(config):
+    """Configure device settings based on configuration"""
+    device_config = config.get('device', {})
     
-    logger.info("Starting main function")
-    logger.info(f"Configuration: {config}")
+    # Set CPU thread configuration
+    num_threads = device_config.get('num_cpu_threads', 4)
+    if num_threads == -1:
+        num_threads = os.cpu_count() - 2
+    num_interop_threads = device_config.get('num_cpu_interop_threads', 2)
+    
+    logger.info(f"Setting CPU threads: {num_threads} intra-op, {num_interop_threads} inter-op")
+    torch.set_num_threads(num_threads)
+    torch.set_num_interop_threads(num_interop_threads)
+    
+    # Determine device type
+    device_type = device_config.get('type', 'auto')
+    use_mps = device_config.get('use_mps', True)
+    
+    # Check for MPS (Apple Silicon)
+    if device_type == 'auto' and use_mps and hasattr(torch, 'mps') and torch.mps.is_available():
+        device = torch.device('mps')
+        logger.info("Using Apple MPS (Metal Performance Shaders) for acceleration")
+    # Check for CUDA
+    elif device_type == 'auto' and torch.cuda.is_available():
+        device = torch.device('cuda')
+        logger.info(f"Using CUDA device: {torch.cuda.get_device_name(0)}")
+    # Explicit device types
+    elif device_type == 'cuda' and torch.cuda.is_available():
+        device = torch.device('cuda')
+        logger.info(f"Using CUDA device: {torch.cuda.get_device_name(0)}")
+    elif device_type == 'mps' and hasattr(torch, 'mps') and torch.mps.is_available():
+        device = torch.device('mps')
+        logger.info("Using Apple MPS (Metal Performance Shaders) for acceleration")
+    else:
+        device = torch.device('cpu')
+        logger.info("Using CPU for computation")
+    
+    return device
+
+
+def load_training_config(config_path="config.hocon"):
+    """
+    Load training configuration from a HOCON file.
+    
+    Args:
+        config_path: Path to the HOCON configuration file
+        
+    Returns:
+        config: Configuration object
+    """
+    logger.info(f"Loading training configuration from {config_path}")
+    
+    if not os.path.exists(config_path):
+        logger.error(f"Configuration file not found at {config_path}")
+        raise FileNotFoundError(f"Configuration file not found at {config_path}")
     
     try:
-        logger.info("Preparing dataset...")
-        train_dataset, eval_dataset, tokenizer = prepare_dataset(
-            dataset_name=config["dataset"],
-            seq_len=config["seq_len"],
-            data_dir=config["data_dir"]
-        )
+        config = ConfigFactory.parse_file(config_path)
+        logger.info("Configuration loaded successfully")
         
-        # Update vocab size
-        config["vocab_size"] = len(tokenizer)
-        logger.info(f"Vocabulary size: {config['vocab_size']}")
+        # Log main configuration parameters
+        logger.info("Model configuration:")
+        logger.info(f"  dim: {config['model']['dim']}")
+        logger.info(f"  num_layers: {config['model']['num_layers']}")
+        logger.info(f"  num_heads: {config['model']['num_heads']}")
+        logger.info(f"  num_experts: {config['model']['num_experts']}")
+        logger.info(f"  top_k: {config['model']['top_k']}")
+        logger.info(f"  max_seq_len: {config['model']['max_seq_len']}")
+        logger.info(f"  shared_expert: {config['model']['shared_expert']}")
+        
+        logger.info("Device configuration:")
+        logger.info(f"  type: {config.get('device', {}).get('type', 'auto')}")
+        logger.info(f"  num_cpu_threads: {config.get('device', {}).get('num_cpu_threads', 4)}")
+        logger.info(f"  num_cpu_interop_threads: {config.get('device', {}).get('num_cpu_interop_threads', 2)}")
+        logger.info(f"  gpu_ids: {config.get('device', {}).get('gpu_ids', [0])}")
+        logger.info(f"  use_mps: {config.get('device', {}).get('use_mps', True)}")
+        
+        logger.info("Training configuration:")
+        logger.info(f"  batch_size: {config['training']['batch_size']}")
+        logger.info(f"  learning_rate: {config['training']['learning_rate']}")
+        logger.info(f"  epochs: {config['training']['epochs']}")
+        logger.info(f"  dataset: {config['training']['dataset']}")
+        
+        return config
+    except Exception as e:
+        logger.error(f"Failed to parse configuration file: {str(e)}")
+        raise
+
+
+def main(config_path="config.hocon"):
+    """Main function to train and evaluate the model"""
+    try:
+        # Load configuration
+        config = load_training_config(config_path)
+        
+        # Set up device
+        device = setup_device(config)
+        
+        logger.info("Preparing dataset...")
+        train_dataset, eval_dataset, tokenizer = prepare_dataset(config)
+        
+        # Update vocab size in config
+        config.put("model.vocab_size", len(tokenizer))
+        logger.info(f"Vocabulary size: {config['model']['vocab_size']}")
         
         # Create model
         logger.info("Creating model...")
         model = LLaMA4MoE(
-            vocab_size=config["vocab_size"],
-            dim=config["dim"],
-            num_layers=config["num_layers"],
-            num_heads=config["num_heads"],
-            num_experts=config["num_experts"],
-            top_k=config["top_k"],
-            max_seq_len=config["max_seq_len"],
-            dropout=config["dropout"],
-            shared_expert=config["shared_expert"],
-            load_balancing_loss_coef=config["load_balancing_loss_coef"]
+            vocab_size=config["model"]["vocab_size"],
+            dim=config["model"]["dim"],
+            num_layers=config["model"]["num_layers"],
+            num_heads=config["model"]["num_heads"],
+            num_experts=config["model"]["num_experts"],
+            top_k=config["model"]["top_k"],
+            max_seq_len=config["model"]["max_seq_len"],
+            dropout=config["model"]["dropout"],
+            shared_expert=config["model"]["shared_expert"],
+            load_balancing_loss_coef=config["model"]["load_balancing_loss_coef"]
         )
         
         # Create optimizer
         optimizer = torch.optim.AdamW(
             model.parameters(), 
-            lr=config["learning_rate"],
+            lr=config["training"]["learning_rate"],
             weight_decay=0.01
         )
+        
+        # Configure multi-GPU training if needed
+        device_config = config.get('device', {})
+        use_data_parallel = device_config.get('use_data_parallel', False)
+        gpu_ids = device_config.get('gpu_ids', [0])
         
         # Create trainer
         trainer = LLaMA4Trainer(
             model=model,
             tokenizer=tokenizer,
-            optimizer=optimizer
+            optimizer=optimizer,
+            device=device,
+            use_data_parallel=use_data_parallel,
+            gpu_ids=gpu_ids
         )
         
         # Train model
@@ -1235,15 +1320,17 @@ def main():
         trainer.train(
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
-            batch_size=config["batch_size"],
-            epochs=config["epochs"],
-            eval_steps=config["eval_steps"]
+            batch_size=config["training"]["batch_size"],
+            epochs=config["training"]["epochs"],
+            eval_steps=config["training"]["eval_steps"],
+            output_dir=config["paths"]["output_dir"],
+            num_workers=config["training"].get("num_workers", 4)
         )
         
         # Generate some text
         logger.info("\nGenerating sample text...")
         prompt = "To be or not to be"
-        input_ids = torch.tensor(tokenizer.encode(prompt), dtype=torch.long).unsqueeze(0)
+        input_ids = torch.tensor(tokenizer.encode(prompt), dtype=torch.long).unsqueeze(0).to(device)
         
         generated_ids = model.generate(
             input_ids,
@@ -1257,15 +1344,13 @@ def main():
         logger.info(f"\nPrompt: {prompt}")
         logger.info(f"Generated: {generated_text[len(prompt):]}")
         
-        # Plot training history
-        trainer.plot_training_history()
-        
         # Save final model
-        trainer.save_model("./llama4_moe_model")
+        trainer.save_model(config["paths"]["model_path"])
         
         logger.info("Training completed successfully")
+        
     except Exception as e:
-        logger.exception(f"An error occurred during execution: {str(e)}")
+        logger.exception(f"An error occurred during training: {str(e)}")
         raise
 
 
@@ -1275,5 +1360,15 @@ if __name__ == "__main__":
     np.random.seed(42)
     random.seed(42)
     
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="LLaMA 4 MoE Training")
+    parser.add_argument(
+        "--config", 
+        type=str, 
+        default="config.hocon",
+        help="Path to the configuration file"
+    )
+    args = parser.parse_args()
+    
     # Run main function
-    main()
+    main(config_path=args.config)

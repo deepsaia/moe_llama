@@ -13,6 +13,27 @@
     load_balancing_loss_coef = 0.01  # Coefficient for load balancing loss
   }
   
+  # Device configuration
+  device {
+    type = "auto"  # "auto", "cpu", "cuda", "mps"
+    num_cpu_threads = -1  # Number of CPU threads to use
+    num_cpu_interop_threads = 2  # Number of CPU interop threads
+    gpu_ids = [0]  # GPUs to use (for DataParallel)
+    use_mps = false  # Whether to use Apple's Metal Performance Shaders (for Macs)
+  }
+  
+  # Training configuration
+  training {
+    batch_size = 16
+    learning_rate = 3e-4
+    epochs = 3
+    eval_steps = 100
+    dataset = "tiny_shakespeare"  # Can be changed to other datasets
+    seq_len = 128
+    data_dir = "data"  # Directory to store datasets
+    num_workers = 4  # Number of data loading workers
+  }
+  
   # Inference configuration
   inference {
     max_new_tokens = 50
@@ -24,5 +45,6 @@
   # Paths configuration
   paths {
     model_path = "./llama4_moe_model"
+    output_dir = "./model"
   }
 }
