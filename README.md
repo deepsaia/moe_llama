@@ -1,7 +1,7 @@
 # 🌟 moellama: Mixture of Experts Language Model
 
-<div style="text-align:center;">
-  <img src="icon.png" alt="MoE Architecture" width="200" height="200"/>
+<div style="text-align:center;" align="center">
+  <img src="icon.png" alt="MoE Architecture" width="60%"/>
 </div>
 
 This project implements a **Mixture of Experts (MoE)** language model inspired by the LLaMA 4 architecture. Unlike traditional transformer models that use a single feed-forward network per layer, this implementation uses multiple expert networks with a router that selects which experts to activate for each token.
