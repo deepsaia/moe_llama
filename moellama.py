@@ -82,9 +82,11 @@ class CharacterTokenizer:
         return self.vocab_size
     
     def save_vocab(self, file_path):
-        """Save vocabulary to file"""
+        """Save vocabulary to file with proper escaping"""
         with open(file_path, 'w', encoding='utf-8') as f:
-            for char, idx in sorted(self.stoi.items(), key=lambda x: x[1]):
+            # Sort by index to ensure consistent ordering
+            for idx in sorted(self.itos.keys()):
+                char = self.itos[idx]
                 # Escape special characters for reliable parsing
                 escaped_char = char
                 if char == '\t':
@@ -100,7 +102,7 @@ class CharacterTokenizer:
         logger.info(f"Vocabulary saved to {file_path}")
     
     def load_vocab(self, file_path):
-        """Load vocabulary from file"""
+        """Load vocabulary from file with proper unescaping"""
         logger.info(f"Loading vocabulary from {file_path}")
         self.stoi = {}
         self.itos = {}
@@ -153,9 +155,20 @@ class CharacterTokenizer:
             self.unk_token = '<unk>'
             
             # Set token IDs with defaults if tokens don't exist
-            self.pad_token_id = self.stoi.get(self.pad_token, 0)
-            self.eos_token_id = self.stoi.get(self.eos_token, 1)
-            self.unk_token_id = self.stoi.get(self.unk_token, 2)
+            if self.pad_token in self.stoi:
+                self.pad_token_id = self.stoi[self.pad_token]
+            else:
+                self.pad_token_id = 0  # Default to first token
+                
+            if self.eos_token in self.stoi:
+                self.eos_token_id = self.stoi[self.eos_token]
+            else:
+                self.eos_token_id = 1  # Default to second token
+                
+            if self.unk_token in self.stoi:
+                self.unk_token_id = self.stoi[self.unk_token]
+            else:
+                self.unk_token_id = 2  # Default to third token
             
             logger.info(f"Successfully loaded vocabulary with {self.vocab_size} tokens")
             
