@@ -6,6 +6,25 @@ import time
 from pyhocon import ConfigFactory, ConfigTree
 from pathlib import Path
 
+# FIRST: Configure PyTorch thread settings BEFORE any other PyTorch operations
+# These settings must be set at the very beginning of the program
+try:
+    # Try to get basic thread settings from environment variables first
+    num_threads = int(os.environ.get('LLAMA4MOE_NUM_THREADS', '4'))
+    if num_threads == -1:
+        num_threads = os.cpu_count() - 2
+    num_interop_threads = int(os.environ.get('LLAMA4MOE_NUM_INTEROP_THREADS', '2'))
+    
+    # Set CPU thread configuration
+    torch.set_num_threads(num_threads)
+    torch.set_num_interop_threads(num_interop_threads)
+    logging.info(f"Initial thread configuration: {num_threads} intra-op, {num_interop_threads} inter-op")
+except Exception as e:
+    logging.warning(f"Could not set initial thread configuration: {str(e)}")
+    # Fallback to defaults
+    torch.set_num_threads(4)
+    torch.set_num_interop_threads(2)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -64,16 +83,6 @@ def load_config(config_path="config.hocon"):
 def setup_device(config):
     """Configure device settings based on configuration"""
     device_config = config.get('device', {})
-    
-    # Set CPU thread configuration
-    num_threads = device_config.get('num_cpu_threads', 4)
-    if num_threads == -1:
-        num_threads = os.cpu_count() - 2
-    num_interop_threads = device_config.get('num_cpu_interop_threads', 2)
-    
-    logger.info(f"Setting CPU threads: {num_threads} intra-op, {num_interop_threads} inter-op")
-    torch.set_num_threads(num_threads)
-    torch.set_num_interop_threads(num_interop_threads)
     
     # Determine device type
     device_type = device_config.get('type', 'auto')
@@ -267,7 +276,7 @@ def generate_text(
             generation_time = time.time() - start_time
         
         # Decode the generated text
-        all_tokens = generated_ids[0].cpu().numpy().tolist()
+        all_tokens = generated_ids[0].tolist()
         generated_text = tokenizer.decode(all_tokens)
         
         # Extract just the newly generated part
@@ -399,14 +408,14 @@ def main():
         print(f"Stats: {result['total_tokens']} total tokens, "
               f"{result['tokens_per_second']:.2f} tokens/sec\n")
     else:
-        print("=== Basic Generation Example ===")
-        generated_text = generate_text(
-            "The future of AI is",
-            config_path=args.config,
-            model_path=args.model_path
-        )
-        print(f"Prompt: 'The future of AI is'")
-        print(f"Generated: {generated_text[len('The future of AI is'):]}\n")
+        # print("=== Basic Generation Example ===")
+        # generated_text = generate_text(
+        #     "The future of AI is",
+        #     config_path=args.config,
+        #     model_path=args.model_path
+        # )
+        # print(f"Prompt: 'The future of AI is'")
+        # print(f"Generated: {generated_text[len('The future of AI is'):]}\n")
         
         print("=== Detailed Generation Example ===")
         result = generate_text(

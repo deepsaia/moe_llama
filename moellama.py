@@ -89,6 +89,7 @@ class CharacterTokenizer:
             # Sort by index to ensure consistent ordering
             for idx in sorted(self.itos.keys()):
                 char = self.itos[idx]
+                
                 # Escape special characters for reliable parsing
                 escaped_char = char
                 if char == '\t':
@@ -108,28 +109,26 @@ class CharacterTokenizer:
         logger.info(f"Loading vocabulary from {file_path}")
         self.stoi = {}
         self.itos = {}
-        
+
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 line_number = 0
                 for line in f:
                     line_number += 1
-                    line = line.strip()
-                    
-                    # Skip empty lines
+                    line = line.rstrip('\n\r')  # Only strip line endings, not spaces/tabs!
                     if not line:
                         continue
-                        
-                    # Split on the first tab only (in case the character is a tab)
-                    parts = line.split('\t', 1)
-                    
-                    if len(parts) != 2:
-                        logger.warning(f"Skipping invalid line {line_number} in vocabulary file: '{line}'")
+
+                    # Split on the FIRST tab only
+                    if '\t' not in line:
+                        logger.warning(f"Skipping invalid line {line_number} (no tab): '{line}'")
                         continue
-                        
-                    escaped_char, idx_str = parts
-                    
-                    # Unescape special characters
+
+                    first_tab_idx = line.find('\t')
+                    escaped_char = line[:first_tab_idx]
+                    idx_str = line[first_tab_idx + 1:]
+
+                    # Unescape special sequences
                     char = escaped_char
                     if char == '\\t':
                         char = '\t'
@@ -139,41 +138,53 @@ class CharacterTokenizer:
                         char = '\r'
                     elif char == '\\\\':
                         char = '\\'
-                    
+                    # No special handling for empty string — it's valid as ''
+                    # So '' remains as ''
+
                     try:
                         idx = int(idx_str)
-                        self.stoi[char] = idx
-                        self.itos[idx] = char
                     except ValueError:
                         logger.warning(f"Invalid index on line {line_number}: '{idx_str}'")
                         continue
-            
+
+                    # Avoid duplicates
+                    if idx in self.itos:
+                        logger.warning(f"Duplicate index {idx} on line {line_number}")
+                    if char in self.stoi:
+                        logger.warning(f"Duplicate character '{char}' on line {line_number}")
+
+                    self.stoi[char] = idx
+                    self.itos[idx] = char
+
             if len(self.stoi) == 0:
                 raise ValueError("No valid vocabulary entries found in file")
-                
+
             self.vocab_size = len(self.stoi)
             self.pad_token = '<pad>'
             self.eos_token = '<eos>'
             self.unk_token = '<unk>'
-            
-            # Set token IDs with defaults if tokens don't exist
+
+            # Validate and set token IDs
+            missing_tokens = []
             if self.pad_token in self.stoi:
                 self.pad_token_id = self.stoi[self.pad_token]
             else:
-                self.pad_token_id = 0  # Default to first token
-                
+                missing_tokens.append(f"'{self.pad_token}'")
+
             if self.eos_token in self.stoi:
                 self.eos_token_id = self.stoi[self.eos_token]
             else:
-                self.eos_token_id = 1  # Default to second token
-                
+                missing_tokens.append(f"'{self.eos_token}'")
+
             if self.unk_token in self.stoi:
                 self.unk_token_id = self.stoi[self.unk_token]
             else:
-                self.unk_token_id = 2  # Default to third token
-            
+                missing_tokens.append(f"'{self.unk_token}'")
+
+            if missing_tokens:
+                raise RuntimeError(f"Missing required special tokens in vocab: {', '.join(missing_tokens)}")
+
             logger.info(f"Successfully loaded vocabulary with {self.vocab_size} tokens")
-            
         except FileNotFoundError:
             logger.error(f"Vocabulary file not found: {file_path}")
             raise
@@ -1035,7 +1046,7 @@ class LLaMA4Trainer:
         
         logger.info(f"Model saved to {output_dir}")
     
-    def plot_training_history(self):
+    def plot_training_history(self, path: str):
         """Plot training history"""
         logger.info("Plotting training history")
         plt.figure(figsize=(15, 5))
@@ -1062,7 +1073,7 @@ class LLaMA4Trainer:
         plt.ylabel('Loss')
         
         plt.tight_layout()
-        plt.savefig('training_history.png')
+        plt.savefig(path+'/training_history.png')
         plt.close()
         logger.info("Training history plot saved as 'training_history.png'")
 
@@ -1326,6 +1337,8 @@ def main(config_path="config.hocon"):
             output_dir=config["paths"]["output_dir"],
             num_workers=config["training"].get("num_workers", 4)
         )
+        # Generate Plot
+        model.plot_training_history(config["paths"]["output_dir"])        
         
         # Generate some text
         logger.info("\nGenerating sample text...")
