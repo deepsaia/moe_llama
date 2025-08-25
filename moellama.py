@@ -1354,7 +1354,7 @@ def main(config_path="config.hocon"):
             num_workers=config["training"].get("num_workers", 4)
         )
         # Generate Plot
-        model.plot_training_history(config["paths"]["output_dir"])        
+        trainer.plot_training_history(config["paths"]["output_dir"])        
         
         # Generate some text
         logger.info("\nGenerating sample text...")
