@@ -161,14 +161,34 @@ training {
 
 ### Basic Inference
 ```bash
-python -m infermoe
+python infermoe.py
 ```
 
 This will run a basic inference example with predefined prompts.
 
 ### Interactive Mode (Recommended)
 ```bash
-python infermoe.py --im
+python infermoe.py -i
+```
+
+### Stdin mode
+```bash
+echo -e "Hello\nHow are you?\nTell me a story" | python infermoe.py --stdin
+```
+
+### Custom prompt
+```bash
+python infermoe.py \
+  --prompt "The future of AI" \
+  --max-new-tokens 100 \
+  --temperature 0.9 \
+  --top-k 40 \
+  --top-p 0.9
+```
+
+### Use verbose flag to get token accounting
+```bash
+python -m infermoe -i -v
 ```
 
 This starts an interactive session where you can:

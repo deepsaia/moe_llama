@@ -293,8 +293,10 @@ def generate_text(
                 "text": generated_text,
                 "prompt": prompt,
                 "completion": completion,
-                "prompt_tokens": token_ids,
-                "completion_tokens": completion_tokens,
+                "prompt_token_ids": token_ids,
+                "completion_token_ids": completion_tokens,
+                "prompt_tokens": len(token_ids),
+                "completion_tokens": len(completion_tokens),
                 "total_tokens": len(all_tokens),
                 "generation_time": generation_time,
                 "tokens_per_second": tokens_per_second
@@ -306,117 +308,149 @@ def generate_text(
         logger.exception(f"Error during text generation: {str(e)}")
         raise
 
-def interactive_inference(config_path="config.hocon", model_path=None):
-    """
-    Start an interactive session for text generation using configuration.
+# def interactive_inference(config_path="config.hocon", model_path=None):
+#     """
+#     Start an interactive session for text generation using configuration.
     
-    Args:
-        config_path: Path to the HOCON configuration file
-        model_path: Optional override for model path
-    """
-    logger.info("Starting interactive inference session. Type 'exit' to quit.")
+#     Args:
+#         config_path: Path to the HOCON configuration file
+#         model_path: Optional override for model path
+#     """
+#     logger.info("Starting interactive inference session. Type 'exit' to quit.")
     
-    try:
-        # Load configuration
-        config = load_config(config_path)
+#     try:
+#         # Load configuration
+#         config = load_config(config_path)
         
-        # Override model path if provided
-        if model_path:
-            config['paths']['model_path'] = model_path
+#         # Override model path if provided
+#         if model_path:
+#             config['paths']['model_path'] = model_path
         
-        # Load model and tokenizer
-        model, tokenizer, device = load_model_and_tokenizer(config)
+#         # Load model and tokenizer
+#         model, tokenizer, device = load_model_and_tokenizer(config)
         
-        # Get default inference parameters
-        default_max_new_tokens = config['inference'].get('max_new_tokens', 50)
-        default_temperature = config['inference'].get('temperature', 0.7)
-        default_top_k = config['inference'].get('top_k', None)
-        default_top_p = config['inference'].get('top_p', None)
+#         # Get default inference parameters
+#         default_max_new_tokens = config['inference'].get('max_new_tokens', 50)
+#         default_temperature = config['inference'].get('temperature', 0.7)
+#         default_top_k = config['inference'].get('top_k', None)
+#         default_top_p = config['inference'].get('top_p', None)
         
-        while True:
-            try:
-                prompt = input("\nPrompt: ")
-                if not prompt or prompt.lower() == 'exit':
-                    break
+#         while True:
+#             try:
+#                 prompt = input("\nPrompt: ")
+#                 if not prompt or prompt.lower() in ['exit', 'quit', 'bye']:
+#                     break
                 
-                # Get user input for generation parameters with defaults from config
-                max_new_tokens_input = input(f"Max new tokens (default {default_max_new_tokens}): ").strip()
-                max_new_tokens = int(max_new_tokens_input) if max_new_tokens_input else default_max_new_tokens
+#                 # Get user input for generation parameters with defaults from config
+#                 max_new_tokens_input = input(f"Max new tokens (default {default_max_new_tokens}): ").strip()
+#                 max_new_tokens = int(max_new_tokens_input) if max_new_tokens_input else default_max_new_tokens
                 
-                temperature_input = input(f"Temperature (default {default_temperature}): ").strip()
-                temperature = float(temperature_input) if temperature_input else default_temperature
+#                 temperature_input = input(f"Temperature (default {default_temperature}): ").strip()
+#                 temperature = float(temperature_input) if temperature_input else default_temperature
                 
-                top_k_input = input(f"Top-k (default {default_top_k}): ").strip()
-                top_k = int(top_k_input) if top_k_input else default_top_k
+#                 top_k_input = input(f"Top-k (default {default_top_k}): ").strip()
+#                 top_k = int(top_k_input) if top_k_input else default_top_k
                 
-                top_p_input = input(f"Top-p (default {default_top_p}): ").strip()
-                top_p = float(top_p_input) if top_p_input else default_top_p
+#                 top_p_input = input(f"Top-p (default {default_top_p}): ").strip()
+#                 top_p = float(top_p_input) if top_p_input else default_top_p
                 
-                print("\nGenerating...")
+#                 print("\nGenerating...")
                 
-                result = generate_text(
-                    prompt,
-                    config_path=config_path,
-                    model_path=model_path,
-                    return_details=True
-                )
+#                 result = generate_text(
+#                     prompt,
+#                     config_path=config_path,
+#                     model_path=model_path,
+#                     return_details=True
+#                 )
                 
-                print("\n=== Generated Text ===")
-                print(result["text"])
-                print("\n=== New Completion ===")
-                print(result["completion"])
-                print(f"\nStats: {result['total_tokens']} total tokens, "
-                     f"{result['tokens_per_second']:.2f} tokens/sec")
+#                 print("\n=== Generated Text ===")
+#                 print(result["text"])
+#                 print("\n=== New Completion ===")
+#                 print(result["completion"])
+#                 print(f"\nStats: {result['total_tokens']} total tokens, "
+#                      f"{result['tokens_per_second']:.2f} tokens/sec")
                      
-            except KeyboardInterrupt:
-                print("\nInterrupted by user. Type 'exit' to quit.")
-                continue
-            except Exception as e:
-                logger.error(f"Error generating text: {str(e)}")
-                print(f"Error generating text: {str(e)}")
-                continue
+#             except KeyboardInterrupt:
+#                 print("\nInterrupted by user. Type 'exit' to quit.")
+#                 continue
+#             except Exception as e:
+#                 logger.error(f"Error generating text: {str(e)}")
+#                 print(f"Error generating text: {str(e)}")
+#                 continue
     
-    except KeyboardInterrupt:
-        logger.info("\nInteractive session terminated by user")
-    except Exception as e:
-        logger.error(f"Error in interactive session: {str(e)}")
-        print(f"Error in interactive session: {str(e)}")
-    finally:
-        logger.info("Interactive session ended")
+#     except KeyboardInterrupt:
+#         logger.info("\nInteractive session terminated by user")
+#     except Exception as e:
+#         logger.error(f"Error in interactive session: {str(e)}")
+#         print(f"Error in interactive session: {str(e)}")
+#     finally:
+#         logger.info("Interactive session ended")
 
 def main():
     """Main function to run the inference script"""
-    parser = argparse.ArgumentParser(description="Text generation demo")
-    parser.add_argument(
-        "--im",
-        action="store_true",
-        help="Run in interactive mode"
-    )
-    parser.add_argument("--config", type=str, default="config.hocon", help="Path to the configuration file")
-    parser.add_argument("--model-path", type=str, default=None, help="Path to the model directory (overrides config)")
-    parser.add_argument("--prompt", type=str, help="Provide a one-off prompt for generation")
-    
+    parser = argparse.ArgumentParser(description="LLaMA-4MoE Text Generation CLI")
+
+    # === Shared Args ===
+    parser.add_argument("--config", type=str, default="config.hocon",
+                        help="Path to the configuration file (default: config.hocon)")
+    parser.add_argument("--model-path", type=str, default=None,
+                        help="Path to the model directory (overrides config)")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                        help="Verbose flag to stdout token accounting")
+
+    # === Generation Mode Selection ===
+    mode_group = parser.add_mutually_exclusive_group(required=False)
+    mode_group.add_argument("--prompt", type=str, nargs='+', 
+                            help="One or more prompts to generate text from")
+    mode_group.add_argument("--interactive", "-i", action="store_true",
+                            help="Run in interactive mode (ask for input at runtime)")
+    mode_group.add_argument("--stdin", action="store_true",
+                            help="Read prompts from stdin (one per line)")
+
+    # === Generation Parameters ===
+    parser.add_argument("--max-new-tokens", type=int, default=None,
+                        help="Number of new tokens to generate (overrides config)")
+    parser.add_argument("--temperature", type=float, default=None,
+                        help="Sampling temperature (overrides config)")
+    parser.add_argument("--top-k", type=int, default=None,
+                        help="Top-k sampling (overrides config)")
+    parser.add_argument("--top-p", type=float, default=None,
+                        help="Top-p (nucleus) sampling (overrides config)")
+
     args = parser.parse_args()
 
-    if args.im:
-        interactive_inference(config_path=args.config, model_path=args.model_path)
+    # Load config early to access defaults
+    try:
+        config = load_config(args.config)
+        inference_config = config['inference']
+    except Exception as e:
+        logger.error(f"Failed to load config: {e}")
+        return
+
+    # Get generation params (CLI > Config > Defaults)
+    max_new_tokens = args.max_new_tokens or inference_config.get('max_new_tokens', 50)
+    temperature = args.temperature or inference_config.get('temperature', 0.7)
+    top_k = args.top_k if args.top_k is not None else inference_config.get('top_k', None)
+    top_p = args.top_p if args.top_p is not None else inference_config.get('top_p', None)
+    verbose = args.verbose
+
+    # === Prompt Input Handling ===
+    if args.interactive:
+        _run_interactive_loop(args.config, args.model_path, 
+                              max_new_tokens, temperature, top_k, top_p, verbose)
+    elif args.stdin:
+        import sys
+        for line in sys.stdin:
+            prompt = line.strip()
+            if prompt:
+                _generate_and_print(prompt, args.config, args.model_path,
+                                    max_new_tokens, temperature, top_k, top_p, verbose)
     elif args.prompt:
-        print(f"=== Prompt Mode ===")
-        result = generate_text(args.prompt, config_path=args.config, model_path=args.model_path, return_details=True)
-        print(f"Prompt: '{result['prompt']}'")
-        print(f"Completion: '{result['completion']}'")
-        print(f"Stats: {result['total_tokens']} total tokens, "
-              f"{result['tokens_per_second']:.2f} tokens/sec\n")
+        for prompt in args.prompt:
+            _generate_and_print(prompt, args.config, args.model_path,
+                                max_new_tokens, temperature, top_k, top_p, verbose)
     else:
-        # print("=== Basic Generation Example ===")
-        # generated_text = generate_text(
-        #     "The future of AI is",
-        #     config_path=args.config,
-        #     model_path=args.model_path
-        # )
-        # print(f"Prompt: 'The future of AI is'")
-        # print(f"Generated: {generated_text[len('The future of AI is'):]}\n")
-        
+        # Default: run example
         print("=== Detailed Generation Example ===")
         result = generate_text(
             "To be or not to be",
@@ -427,7 +461,74 @@ def main():
         print(f"Prompt: '{result['prompt']}'")
         print(f"Completion: '{result['completion']}'")
         print(f"Stats: {result['total_tokens']} total tokens, "
-             f"{result['tokens_per_second']:.2f} tokens/sec\n")
+              f"{result['tokens_per_second']:.2f} tokens/sec\n")
+
+def _generate_and_print(prompt, config_path, model_path,
+                        max_new_tokens, temperature, top_k, top_p, verbose):
+    """Helper: Generate and print result in standard format"""
+    print(f"\n=== Generating for prompt ===")
+    print(f"Prompt: '{prompt}'")
+    try:
+        result = generate_text(
+            prompt,
+            config_path=config_path,
+            model_path=model_path,
+            return_details=True
+        )
+        print(f"Completion: '{result['completion']}'")
+        print(f"Stats: {result['total_tokens']} total tokens, "
+              f"{result['tokens_per_second']:.2f} tokens/sec")
+        if verbose:
+            print(f"\nVerbose result: {result}")
+    except Exception as e:
+        logger.error(f"Error generating for prompt '{prompt}': {e}")
+        print(f"Error: {e}")
+
+
+def _run_interactive_loop(config_path, model_path, max_new_tokens, temperature, top_k, top_p, verbose):
+    """Run interactive mode with pre-defined parameters, no per-prompt input"""
+    logger.info("Starting interactive inference session. Type 'exit' to quit.")
+    try:
+        while True:
+            try:
+                prompt = input("\nPrompt: ").strip()
+                if not prompt or prompt.lower() in ['exit', 'quit', 'bye']:
+                    break
+
+                print("\nUsing generation parameters:")
+                print(f"  max_new_tokens: {max_new_tokens}")
+                print(f"  temperature: {temperature}")
+                print(f"  top_k: {top_k}")
+                print(f"  top_p: {top_p}")
+                print("Generating...\n")
+
+                result = generate_text(
+                    prompt,
+                    config_path=config_path,
+                    model_path=model_path,
+                    return_details=True
+                )
+
+                print("\n=== Generated Text ===")
+                print(result["text"])
+                print("\n=== New Completion ===")
+                print(result["completion"])
+                print(f"\nStats: {result['total_tokens']} total tokens, "
+                      f"{result['tokens_per_second']:.2f} tokens/sec")
+                if verbose:
+                    print(f"\nVerbose result: {result}")
+
+            except KeyboardInterrupt:
+                print("\nInterrupted by user. Type 'exit' to quit.")
+                continue
+            except Exception as e:
+                logger.error(f"Error generating text: {str(e)}")
+                print(f"Error generating text: {str(e)}")
+                continue
+    except Exception as e:
+        logger.error(f"Error in interactive session: {str(e)}")
+    finally:
+        logger.info("Interactive session ended")
 
 if __name__ == "__main__":
     # Set random seed for reproducibility
