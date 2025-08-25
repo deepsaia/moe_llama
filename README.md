@@ -1,4 +1,4 @@
-# 🌟 moellama: Mixture of Experts Language Model
+# 🌟 moellama: Mixture of Experts Language Model (From Scratch)
 
 <div style="text-align:center;" align="center">
   <img src="icon.png" alt="MoE Architecture" width="60%"/>
