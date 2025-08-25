@@ -36,7 +36,7 @@
   
   # Inference configuration
   inference {
-    max_new_tokens = 1000
+    max_new_tokens = 200
     temperature = 0.8
     top_k = 50
     top_p = 0.95

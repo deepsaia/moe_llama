@@ -1,6 +1,7 @@
 import torch
 import logging
 import os
+import glob
 import argparse
 import time
 from pyhocon import ConfigFactory, ConfigTree
@@ -109,7 +110,15 @@ def setup_device(config):
     
     return device
 
-def load_model_and_tokenizer(config):
+def _find_latest_file(directory: Path, pattern: str):
+    """Find the latest file in a directory matching a pattern"""
+    directory = Path(directory)
+    files = list(directory.glob(pattern))
+    if not files:
+        return None
+    return Path(max(files, key=os.path.getmtime))
+
+def load_model_and_tokenizer(config, model_file=None, vocab_file=None):
     """
     Load a trained model and its tokenizer from disk using configuration.
     
@@ -121,16 +130,23 @@ def load_model_and_tokenizer(config):
         tokenizer: The loaded CharacterTokenizer
         device: The device the model is on
     """
-    model_path = config['paths']['model_path']
-    logger.info(f"Loading model from {model_path}")
+    model_dir = config['paths']['model_path']
+    logger.info(f"Loading model from {model_dir}")
     
     # Set up device based on configuration
     device = setup_device(config)
     
     # First, load the tokenizer to get vocab size
-    tokenizer_path = Path(model_path) / "vocab.txt"
-    if not tokenizer_path.exists():
-        raise FileNotFoundError(f"Tokenizer vocabulary file not found at {tokenizer_path}")
+    # === Tokenizer ===
+    if vocab_file:
+        tokenizer_path = Path(vocab_file)
+    else:
+        tokenizer_path = _find_latest_file(model_dir, "vocab_*.txt")
+        if tokenizer_path is None:
+            tokenizer_path = model_dir + "/vocab.txt"  # legacy fallback
+
+    if not Path(tokenizer_path).exists():
+        raise FileNotFoundError(f"Tokenizer vocabulary not found at {tokenizer_path}")
     
     # Dynamically import CharacterTokenizer from the main module
     try:
@@ -145,7 +161,18 @@ def load_model_and_tokenizer(config):
     
     tokenizer = CharacterTokenizer(vocab_file=str(tokenizer_path))
     vocab_size = len(tokenizer)
-    logger.info(f"Loaded tokenizer with vocabulary size: {vocab_size}")
+    logger.info(f"Loaded tokenizer ({tokenizer_path}) with vocabulary size: {vocab_size}")
+
+    # === Model ===
+    if model_file:
+        model_path_file = Path(model_file)
+    else:
+        model_path_file = _find_latest_file(model_dir, "model_*.pt")
+        if model_path_file is None:
+            model_path_file = model_dir + "/model.pt"  # legacy fallback
+
+    if not Path(model_path_file).exists():
+        raise FileNotFoundError(f"Model file not found at {model_path_file}")
     
     # Create model with configuration parameters
     try:
@@ -170,11 +197,6 @@ def load_model_and_tokenizer(config):
         shared_expert=config['model']['shared_expert'],
         load_balancing_loss_coef=config['model']['load_balancing_loss_coef']
     )
-    
-    # Load model weights
-    model_path_file = Path(model_path) / "model.pt"
-    if not model_path_file.exists():
-        raise FileNotFoundError(f"Model file not found at {model_path_file}")
     
     # Load the state dict
     state_dict = torch.load(str(model_path_file), map_location=device)
@@ -213,6 +235,8 @@ def generate_text(
     prompt,
     config_path="config.hocon",
     model_path=None,
+    model_file=None, 
+    vocab_file=None,
     device=None,
     return_details=False
 ):
@@ -247,7 +271,9 @@ def generate_text(
             config['paths']['model_path'] = model_path
         
         # Load model and tokenizer
-        model, tokenizer, device = load_model_and_tokenizer(config)
+        model, tokenizer, device = load_model_and_tokenizer(config,
+                                                            model_file=model_file, 
+                                                            vocab_file=vocab_file)
         
         # Get inference parameters from config
         max_new_tokens = config['inference'].get('max_new_tokens', 50)
@@ -308,84 +334,6 @@ def generate_text(
         logger.exception(f"Error during text generation: {str(e)}")
         raise
 
-# def interactive_inference(config_path="config.hocon", model_path=None):
-#     """
-#     Start an interactive session for text generation using configuration.
-    
-#     Args:
-#         config_path: Path to the HOCON configuration file
-#         model_path: Optional override for model path
-#     """
-#     logger.info("Starting interactive inference session. Type 'exit' to quit.")
-    
-#     try:
-#         # Load configuration
-#         config = load_config(config_path)
-        
-#         # Override model path if provided
-#         if model_path:
-#             config['paths']['model_path'] = model_path
-        
-#         # Load model and tokenizer
-#         model, tokenizer, device = load_model_and_tokenizer(config)
-        
-#         # Get default inference parameters
-#         default_max_new_tokens = config['inference'].get('max_new_tokens', 50)
-#         default_temperature = config['inference'].get('temperature', 0.7)
-#         default_top_k = config['inference'].get('top_k', None)
-#         default_top_p = config['inference'].get('top_p', None)
-        
-#         while True:
-#             try:
-#                 prompt = input("\nPrompt: ")
-#                 if not prompt or prompt.lower() in ['exit', 'quit', 'bye']:
-#                     break
-                
-#                 # Get user input for generation parameters with defaults from config
-#                 max_new_tokens_input = input(f"Max new tokens (default {default_max_new_tokens}): ").strip()
-#                 max_new_tokens = int(max_new_tokens_input) if max_new_tokens_input else default_max_new_tokens
-                
-#                 temperature_input = input(f"Temperature (default {default_temperature}): ").strip()
-#                 temperature = float(temperature_input) if temperature_input else default_temperature
-                
-#                 top_k_input = input(f"Top-k (default {default_top_k}): ").strip()
-#                 top_k = int(top_k_input) if top_k_input else default_top_k
-                
-#                 top_p_input = input(f"Top-p (default {default_top_p}): ").strip()
-#                 top_p = float(top_p_input) if top_p_input else default_top_p
-                
-#                 print("\nGenerating...")
-                
-#                 result = generate_text(
-#                     prompt,
-#                     config_path=config_path,
-#                     model_path=model_path,
-#                     return_details=True
-#                 )
-                
-#                 print("\n=== Generated Text ===")
-#                 print(result["text"])
-#                 print("\n=== New Completion ===")
-#                 print(result["completion"])
-#                 print(f"\nStats: {result['total_tokens']} total tokens, "
-#                      f"{result['tokens_per_second']:.2f} tokens/sec")
-                     
-#             except KeyboardInterrupt:
-#                 print("\nInterrupted by user. Type 'exit' to quit.")
-#                 continue
-#             except Exception as e:
-#                 logger.error(f"Error generating text: {str(e)}")
-#                 print(f"Error generating text: {str(e)}")
-#                 continue
-    
-#     except KeyboardInterrupt:
-#         logger.info("\nInteractive session terminated by user")
-#     except Exception as e:
-#         logger.error(f"Error in interactive session: {str(e)}")
-#         print(f"Error in interactive session: {str(e)}")
-#     finally:
-#         logger.info("Interactive session ended")
-
 def main():
     """Main function to run the inference script"""
     parser = argparse.ArgumentParser(description="LLaMA-4MoE Text Generation CLI")
@@ -397,6 +345,10 @@ def main():
                         help="Path to the model directory (overrides config)")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Verbose flag to stdout token accounting")
+    parser.add_argument("--model-file", type=str, default=None,
+                    help="Specific model checkpoint file (e.g. model_xxx.pt)")
+    parser.add_argument("--vocab-file", type=str, default=None,
+                        help="Specific vocab file (e.g. vocab_xxx.txt)")
 
     # === Generation Mode Selection ===
     mode_group = parser.add_mutually_exclusive_group(required=False)
@@ -436,18 +388,18 @@ def main():
 
     # === Prompt Input Handling ===
     if args.interactive:
-        _run_interactive_loop(args.config, args.model_path, 
+        _run_interactive_loop(args.config, args.model_path, args.model_file, args.vocab_file,
                               max_new_tokens, temperature, top_k, top_p, verbose)
     elif args.stdin:
         import sys
         for line in sys.stdin:
             prompt = line.strip()
             if prompt:
-                _generate_and_print(prompt, args.config, args.model_path,
+                _generate_and_print(prompt, args.config, args.model_path, args.model_file, args.vocab_file,
                                     max_new_tokens, temperature, top_k, top_p, verbose)
     elif args.prompt:
         for prompt in args.prompt:
-            _generate_and_print(prompt, args.config, args.model_path,
+            _generate_and_print(prompt, args.config, args.model_path, args.model_file, args.vocab_file,
                                 max_new_tokens, temperature, top_k, top_p, verbose)
     else:
         # Default: run example
@@ -456,6 +408,8 @@ def main():
             "To be or not to be",
             config_path=args.config,
             model_path=args.model_path,
+            model_file=args.model_file,
+            vocab_file=args.vocab_file,
             return_details=True
         )
         print(f"Prompt: '{result['prompt']}'")
@@ -463,7 +417,7 @@ def main():
         print(f"Stats: {result['total_tokens']} total tokens, "
               f"{result['tokens_per_second']:.2f} tokens/sec\n")
 
-def _generate_and_print(prompt, config_path, model_path,
+def _generate_and_print(prompt, config_path, model_path, model_file, vocab_file,
                         max_new_tokens, temperature, top_k, top_p, verbose):
     """Helper: Generate and print result in standard format"""
     print(f"\n=== Generating for prompt ===")
@@ -473,6 +427,8 @@ def _generate_and_print(prompt, config_path, model_path,
             prompt,
             config_path=config_path,
             model_path=model_path,
+            model_file=model_file,
+            vocab_file=vocab_file,
             return_details=True
         )
         print(f"Completion: '{result['completion']}'")
@@ -485,7 +441,8 @@ def _generate_and_print(prompt, config_path, model_path,
         print(f"Error: {e}")
 
 
-def _run_interactive_loop(config_path, model_path, max_new_tokens, temperature, top_k, top_p, verbose):
+def _run_interactive_loop(config_path, model_path, model_file, vocab_file,
+                          max_new_tokens, temperature, top_k, top_p, verbose):
     """Run interactive mode with pre-defined parameters, no per-prompt input"""
     logger.info("Starting interactive inference session. Type 'exit' to quit.")
     try:
@@ -506,6 +463,8 @@ def _run_interactive_loop(config_path, model_path, max_new_tokens, temperature, 
                     prompt,
                     config_path=config_path,
                     model_path=model_path,
+                    model_file=model_file,
+                    vocab_file=vocab_file,
                     return_details=True
                 )
 

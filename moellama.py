@@ -11,6 +11,7 @@ from tqdm import tqdm
 import math
 import copy
 import time
+from datetime import datetime
 import datasets
 from collections import Counter
 import matplotlib.pyplot as plt
@@ -20,11 +21,18 @@ import argparse
 from pyhocon import ConfigFactory
 
 # Configure logging
+logs_dir = "logs"
+
+if not os.path.exists(logs_dir):
+    os.makedirs(logs_dir, exist_ok=True)  # creates intermediate dirs too
+    print(f"Created directory: {logs_dir}")
+else:
+    print(f"Directory already exists: {logs_dir}")
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("llama4_moe.log"),
+        logging.FileHandler(logs_dir+"/llama4_moe.log"),
         logging.StreamHandler()
     ]
 )
@@ -886,13 +894,14 @@ class LLaMA4Trainer:
     """Trainer for the LLaMA 4 MoE model"""
     
     def __init__(self, model, tokenizer, optimizer, device='cuda' if torch.cuda.is_available() else 'cpu', 
-                 use_data_parallel=False, gpu_ids=None):
+                 use_data_parallel=False, gpu_ids=None, config=None):
         self.model = model
         self.tokenizer = tokenizer
         self.optimizer = optimizer
         self.device = device
         self.use_data_parallel = use_data_parallel
         self.gpu_ids = gpu_ids
+        self.config = config
         
         # Set up DataParallel if requested and multiple GPUs are available
         if use_data_parallel and gpu_ids and len(gpu_ids) > 1 and torch.cuda.is_available():
@@ -1031,20 +1040,26 @@ class LLaMA4Trainer:
         logger.info(f"Evaluation completed | Avg Loss: {avg_loss:.4f} | Perplexity: {perplexity:.2f}")
         return avg_loss, perplexity
     
-    def save_model(self, output_dir):
-        """Save the model and tokenizer"""
+    def save_model(self, output_dir, dataset):
+        """Save the model and tokenizer with dataset + timestamp in name"""
         logger.info(f"Saving model to {output_dir}")
-        import os
         os.makedirs(output_dir, exist_ok=True)
         
-        # Save model - handle DataParallel case
-        model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
-        torch.save(model_to_save.state_dict(), f"{output_dir}/model.pt")
-        
+        dataset = dataset or self.config["training"].get("dataset")
+        # Prepare filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        model_filename = f"model_{dataset}_{timestamp}.pt"
+
+        # Handle DataParallel
+        model_to_save = self.model.module if hasattr(self.model, "module") else self.model
+        torch.save(model_to_save.state_dict(), os.path.join(output_dir, model_filename))
+
         # Save tokenizer
-        self.tokenizer.save_vocab(f"{output_dir}/vocab.txt")
-        
-        logger.info(f"Model saved to {output_dir}")
+        vocab_path = os.path.join(output_dir, f"vocab_{dataset}.txt")
+        self.tokenizer.save_vocab(vocab_path)
+
+        logger.info(f"Model saved to {os.path.join(output_dir, model_filename)}")
+        logger.info(f"Tokenizer saved to {vocab_path}")
     
     def plot_training_history(self, path: str):
         """Plot training history"""
@@ -1323,7 +1338,8 @@ def main(config_path="config.hocon"):
             optimizer=optimizer,
             device=device,
             use_data_parallel=use_data_parallel,
-            gpu_ids=gpu_ids
+            gpu_ids=gpu_ids,
+            config=config
         )
         
         # Train model
