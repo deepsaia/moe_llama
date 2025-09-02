@@ -7,7 +7,7 @@
     num_heads = 8     # Number of attention heads
     num_experts = 8   # Number of experts in MoE layer
     top_k = 2         # Number of experts to select per token
-    max_seq_len = 128 # Maximum sequence length
+    max_seq_len = 256 # Maximum sequence length
     dropout = 0.1     # Dropout rate
     shared_expert = true  # Include a shared expert
     load_balancing_loss_coef = 0.01  # Coefficient for load balancing loss
@@ -29,7 +29,7 @@
     epochs = 3
     eval_steps = 100
     dataset = "tiny_shakespeare"  # Can be changed to other datasets
-    seq_len = 128
+    seq_len = 256
     data_dir = "data"  # Directory to store datasets
     num_workers = 4  # Number of data loading workers
   }
