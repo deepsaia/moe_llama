@@ -754,8 +754,29 @@ class LLaMA4Trainer:
             self.model = nn.DataParallel(self.model, device_ids=gpu_ids)
         self.model.to(device)
 
+        if tokenizer is not None:
+            logger.info(f"Trainer received tokenizer with pad_token_id={tokenizer.pad_token_id}")
+            if tokenizer.pad_token_id is None:
+                raise RuntimeError("Tokenizer pad_token_id is None — check BPETokenizer._setup_tokenizer()")
+
         logger.info(f"Initialized trainer with device: {device}")
         self.history = {'loss': [], 'perplexity': [], 'load_balancing_loss': []}
+
+    @staticmethod
+    def collate_fn(batch):
+        """Collate function to pad sequences in a batch"""
+        # Find max length in batch
+        max_len = max(len(item) for item in batch)
+        padded = []
+        for item in batch:
+            # item is a Tensor, padding is a list → convert to tensor
+            num_pad = max_len - len(item)
+            padding_tensor = torch.zeros(num_pad, dtype=torch.long, device=item.device)
+            # Concatenate along sequence dimension
+            padded_item = torch.cat([item, padding_tensor], dim=0)
+            padded.append(padded_item)
+        # Stack into batch
+        return torch.stack(padded)
     
     def train(self, train_dataset, eval_dataset=None, batch_size=16, 
               epochs=3, eval_steps=100, save_steps=None, output_dir='./model',
@@ -777,9 +798,15 @@ class LLaMA4Trainer:
         logger.info(f"Training configuration: batch_size={batch_size}, epochs={epochs}, "
                 f"eval_steps={eval_steps}, save_steps={save_steps}, output_dir={output_dir}")
 
+        pin_memory = (self.device == 'cuda')
         train_loader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers,
-            pin_memory=True  # ← Added for faster GPU transfer
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=pin_memory,  # ← Added for faster GPU transfer
+            persistent_workers=True,  # Optional: avoids worker restart
+            collate_fn=LLaMA4Trainer.collate_fn,
         )
 
         global_step = 0
@@ -846,8 +873,21 @@ class LLaMA4Trainer:
         """Evaluate the model on a dataset"""
         logger.info("Starting evaluation")
         self.model.eval()
+        # 🔍 DEBUG: Check tokenizer
+        if self.tokenizer is None:
+            raise ValueError("ERROR: self.tokenizer is None in evaluate()")
+        if self.tokenizer.pad_token_id is None:
+            raise ValueError(f"ERROR: self.tokenizer.pad_token_id is None! Tokenizer state: {self.tokenizer.__dict__}")
+        
+        logger.info(f"Tokenizer pad_token_id: {self.tokenizer.pad_token_id} (type: {type(self.tokenizer.pad_token_id)})")
+        
         eval_loader = DataLoader(
-            eval_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
+            eval_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=(self.device == 'cuda'),
+            collate_fn=LLaMA4Trainer.collate_fn,
         )
         
         total_loss = 0

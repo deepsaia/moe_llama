@@ -38,12 +38,31 @@ class BPETokenizer:
 
     def _setup_tokenizer(self):
         """Apply standard settings after loading or training"""
-        if self.tokenizer is not None:
-            self.tokenizer.enable_padding(pad_token="[PAD]")
+        if self.tokenizer is None:
+            raise ValueError("Cannot setup tokenizer: self.tokenizer is None")
+
+        # ✅ Force-reapply padding and truncation
+        try:
+            self.tokenizer.enable_padding(pad_token="[PAD]", pad_id=0)
             self.tokenizer.enable_truncation(max_length=512)
-            self.pad_token_id = self.tokenizer.token_to_id("[PAD]")
-            self.eos_token_id = self.tokenizer.token_to_id("[EOS]")
-            self.unk_token_id = self.tokenizer.token_to_id("[UNK]")
+        except Exception as e:
+            logger.warning(f"Failed to enable padding/truncation: {e}")
+
+        # Now get token IDs
+        self.pad_token_id = self.tokenizer.token_to_id("[PAD]")
+        self.eos_token_id = self.tokenizer.token_to_id("[EOS]")
+        self.unk_token_id = self.tokenizer.token_to_id("[UNK]")
+
+        # ✅ Add strict validation
+        if self.pad_token_id != 0:
+            raise ValueError(f"Expected pad_token_id=0, got {self.pad_token_id}. "
+                            "Make sure [PAD] is correctly defined.")
+        if self.eos_token_id is None:
+            raise ValueError("EOS token ID is None")
+        if self.unk_token_id is None:
+            raise ValueError("UNK token ID is None")
+
+        logger.info(f"Tokenizer setup: pad={self.pad_token_id}, eos={self.eos_token_id}, unk={self.unk_token_id}")
 
     def train(self, text, vocab_size=5000, min_frequency=2, special_tokens=None):
         if special_tokens is None:
@@ -76,6 +95,8 @@ class BPETokenizer:
             special_tokens=[("[EOS]", self.tokenizer.token_to_id("[EOS]"))],
         )
 
+        self._setup_tokenizer()
+
         logger.info(f"BPE Tokenizer trained. Vocab size: {self.tokenizer.get_vocab_size()}")
 
     def encode(self, text):
@@ -86,6 +107,8 @@ class BPETokenizer:
 
     def save_vocab(self, file_path):
         # Save tokenizer to single JSON file
+        if self.tokenizer is None:
+            raise ValueError("No tokenizer to save")
         self.tokenizer.save(file_path)
         logger.info(f"BPE tokenizer saved to {file_path}")
 
@@ -93,18 +116,16 @@ class BPETokenizer:
         """Load tokenizer from a single JSON file (produced by Tokenizer.save())"""
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Tokenizer file not found at {file_path}")
+
+        # Load the tokenizer
         self.tokenizer = Tokenizer.from_file(file_path)
 
-        # Re-enable padding/truncation
-        self.tokenizer.enable_padding(pad_token="[PAD]")
-        self.tokenizer.enable_truncation(max_length=512)
-
-        # Set special token IDs
-        self.pad_token_id = self.tokenizer.token_to_id("[PAD]")
-        self.eos_token_id = self.tokenizer.token_to_id("[EOS]")
-        self.unk_token_id = self.tokenizer.token_to_id("[UNK]")
+        # ✅ Use _setup_tokenizer to set padding, truncation, and token IDs
+        self._setup_tokenizer()
 
         logger.info(f"BPE tokenizer loaded from {file_path}, vocab size: {self.tokenizer.get_vocab_size()}")
 
     def __len__(self):
+        if self.tokenizer is None:
+            raise ValueError("Tokenizer not initialized")
         return self.tokenizer.get_vocab_size()
