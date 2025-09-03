@@ -1,7 +1,7 @@
 {
   # Model architecture configuration
   model {
-    vocab_size = 100  # Will be updated after tokenizer is created
+    vocab_size = 10000  # Will be updated after tokenizer is created
     dim = 256         # Model dimension
     num_layers = 4    # Number of transformer layers
     num_heads = 8     # Number of attention heads

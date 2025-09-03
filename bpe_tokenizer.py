@@ -11,8 +11,9 @@ import logging
 logger = logging.getLogger("")
 
 class BPETokenizer:
-    def __init__(self, vocab_file=None, merges_file=None, text=None, special_tokens=None):
+    def __init__(self, vocab_file=None, vocab_size=None, merges_file=None, text=None, special_tokens=None):
         self.tokenizer = None
+        self.vocab_size = vocab_size
         self.pad_token_id = None
         self.eos_token_id = None
         self.unk_token_id = None
@@ -73,7 +74,7 @@ class BPETokenizer:
 
         # Trainer config
         trainer = BpeTrainer(
-            vocab_size=vocab_size,
+            vocab_size=self.vocab_size or vocab_size,
             min_frequency=min_frequency,
             special_tokens=special_tokens,
             show_progress=True

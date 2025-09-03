@@ -1019,8 +1019,9 @@ def prepare_dataset(config, tokenizer=None):
         train_dataset, eval_dataset, tokenizer
     """
     logger.info(f"Preparing dataset: {config['training']['dataset']}")
-    if config['training']['dataset'] == "tiny_shakespeare":
-        text = download_tiny_shakespeare(config['training']['data_dir'])
+    if config['training']['dataset'] is not None:
+        title = config['training']['dataset']
+        text = download_tiny_shakespeare(title)
         train_size = int(0.9 * len(text))
         train_text = text[:train_size]
         eval_text = text[train_size:]
@@ -1028,7 +1029,7 @@ def prepare_dataset(config, tokenizer=None):
 
         # Create BPE tokenizer
         if tokenizer is None:
-            logger.info("Training BPE tokenizer on tiny_shakespeare...")
+            logger.info("Training BPE tokenizer on %s...", title)
             tokenizer = BPETokenizer(text=train_text, special_tokens=["[PAD]", "[EOS]", "[UNK]"])
 
         # Create datasets
