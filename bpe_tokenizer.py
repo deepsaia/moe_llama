@@ -44,7 +44,7 @@ class BPETokenizer:
         # ✅ Force-reapply padding and truncation
         try:
             self.tokenizer.enable_padding(pad_token="[PAD]", pad_id=0)
-            self.tokenizer.enable_truncation(max_length=512)
+            # self.tokenizer.enable_truncation(max_length=512)
         except Exception as e:
             logger.warning(f"Failed to enable padding/truncation: {e}")
 

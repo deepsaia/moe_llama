@@ -709,22 +709,28 @@ class TextDataset(Dataset):
     def __init__(self, texts, tokenizer, seq_len=128):
         self.tokenizer = tokenizer
         self.seq_len = seq_len
+        self.token_ids = []
         logger.info(f"Initializing TextDataset with {len(texts)} texts, seq_len={seq_len}")
         
         # Tokenize all texts
-        self.token_ids = []
         for text in texts:
-            # Add EOS token at the end
-            tokens = tokenizer.encode(text) + [tokenizer.eos_token_id]
-            self.token_ids.extend(tokens)
+            # Tokenize in chunks to avoid memory issues with huge texts
+            chunks = [text[i:i+10000] for i in range(0, len(text), 10000)]
+            for chunk in chunks:
+                # Add EOS token at the end of each chunk
+                encoded = self.tokenizer.encode(chunk + " [EOS]")
+                self.token_ids.extend(encoded)
         
-        # Split into sequences
+        # Split into sequences (with proper truncation per sequence)
         self.sequences = []
-        for i in range(0, len(self.token_ids) - seq_len, seq_len):
-            seq = self.token_ids[i:i + seq_len]
+        for i in range(0, len(self.token_ids), self.seq_len):
+            seq = self.token_ids[i:i + self.seq_len]
+            # Pad if needed
+            if len(seq) < self.seq_len:
+                seq = seq + [self.tokenizer.pad_token_id] * (self.seq_len - len(seq))
             self.sequences.append(seq)
         
-        logger.info(f"Created {len(self.sequences)} sequences from tokenized text")
+        logger.info(f"Created {len(self.sequences)} sequences from tokenized text (seq_len={self.seq_len})")
     
     def __len__(self):
         return len(self.sequences)
@@ -1028,7 +1034,7 @@ def prepare_dataset(config, tokenizer=None):
         # Create datasets
         train_dataset = TextDataset([train_text], tokenizer, seq_len=config['training']['seq_len'])
         eval_dataset = TextDataset([eval_text], tokenizer, seq_len=config['training']['seq_len'])
-        return train_dataset, eval_dataset, tokenizer
+        # return train_dataset, eval_dataset, tokenizer
     else:
         logger.info(f"Loading dataset '{config['training']['dataset']}' from Hugging Face")
         from datasets import load_dataset
@@ -1047,7 +1053,11 @@ def prepare_dataset(config, tokenizer=None):
 
         train_dataset = TextDataset(train_texts, tokenizer, seq_len=config['training']['seq_len'])
         eval_dataset = TextDataset(eval_texts, tokenizer, seq_len=config['training']['seq_len'])
-        return train_dataset, eval_dataset, tokenizer
+        
+    logger.info(f"Train dataset size: {len(train_dataset)} sequences")
+    logger.info(f"Eval dataset size: {len(eval_dataset)} sequences")
+    
+    return train_dataset, eval_dataset, tokenizer
 
 
 def setup_device(config):
