@@ -9,8 +9,19 @@ __pycache__/
 # Distribution / packaging
 .Python
 data/
+dataset/
 *model/
+trained_models/
+model/
 build/
+
+# Frontend
+frontend/node_modules/
+prebuilt_frontend/
+
+# Evaluation reports
+report.md
+*.report.md
 develop-eggs/
 dist/
 downloads/

@@ -1,270 +1,712 @@
-# 🌟 moellama: Mixture of Experts Language Model (From Scratch)
+# 🌟 moellama: Mixture of Experts Language Model
 
-<div style="text-align:center;" align="center">
+<div align="center">
   <img src="icon.png" alt="MoE Architecture" width="60%"/>
 </div>
 
-This project implements a **Mixture of Experts (MoE)** language model inspired by the LLaMA 4 architecture. Unlike traditional transformer models that use a single feed-forward network per layer, this implementation uses multiple expert networks with a router that selects which experts to activate for each token.
+A clean, modular, educational implementation of the **Mixture of Experts (MoE)** architecture. This project provides a full-stack implementation of MoE from scratch, designed for learning and experimentation.
 
 ## ✨ Key Features
 
-- **Character-level tokenization** with proper escaping for special characters
-- **Rotary Positional Embeddings (RoPE)** for better positional understanding
-- **RMS Normalization** for stable training
-- **Mixture of Experts** with configurable number of experts and routing
-- **Shared expert option** to ensure certain knowledge is always available
-- **Multi-device support** (CPU, GPU, MPS for Apple Silicon)
-- **Interactive inference mode** for real-time text generation
-- **HOCON configuration** for easy setup and reproducibility
-- **Load balancing loss** to prevent expert collapse during training
+- **Modular Architecture** - Clean separation of concerns with distinct modules
+- **Mixture of Experts** - Sparse expert activation for efficient scaling
+- **Rotary Positional Embeddings (RoPE)** - Better positional understanding
+- **RMS Normalization** - Stable training without mean centering
+- **Load Balancing** - Prevents expert collapse during training
+- **Shared Expert Option** - Ensures certain knowledge is always available
+- **Multi-Device Support** - Works on CPU, CUDA (NVIDIA), MPS (Apple Silicon)
+- **Interactive Inference** - Real-time text generation with parameter tuning
+- **HOCON Configuration** - Easy, readable configuration files
+- **Comprehensive Documentation** - Detailed docstrings and inline comments
 
-## 📋 Project Overview
+## 📋 What is Mixture of Experts?
 
-LLaMA4MoE is a from-scratch implementation of the Mixture of Experts architecture used in LLaMA 4. Instead of processing every token through the same feed-forward network, MoE models route tokens to specialized "expert" networks, allowing for:
-- Efficient scaling to larger parameter counts
-- Better specialization for different token types
-- Reduced computational cost during inference
-- Improved model performance for the same computational budget
+Unlike traditional transformers that route every token through the same feed-forward network, MoE models use multiple "expert" networks. A router network decides which experts should process each token, enabling:
+
+- **Efficient Scaling** - More parameters without proportional compute cost
+- **Specialization** - Different experts learn different patterns
+- **Sparse Activation** - Only top-k experts process each token
+- **Better Performance** - Match dense models with less computation
+
+**Example**: With 8 experts and `top_k=2`, each token is processed by only 2 experts, but different tokens may select different experts based on their content.
 
 ## 🛠️ Installation
 
 ### Prerequisites
 - Python 3.10+
 - pip or conda
-- For GPU acceleration: CUDA-compatible NVIDIA GPU or Apple Silicon for MPS or even just a cpu
+- For GPU: CUDA-compatible NVIDIA GPU, or Apple Silicon for MPS, or just CPU
 
 ### Step-by-Step Setup
 
-1. Clone the repository
+1. **Clone the repository**
 ```bash
-git clone https://github.com/deepsai8/moe_llama.git
-cd llama4-moe
+git clone https://github.com/deepsaia/moe_llama.git
+cd moe_llama
 ```
 
-2. Create and activate a virtual environment
+2. **Create virtual environment**
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+uv venv
 ```
 
-3. Install dependencies
-```bash 
-pip install -r requirements.txt
+3. **Install dependencies**
+```bash
+uv sync
+source .venv/bin/activate
 ```
+
+## 📁 Project Structure
+
+```
+moe_llama/
+├── moellama/                  # Core library (modular components)
+│   ├── __init__.py           # Package initialization
+│   ├── model.py              # Complete LLaMA4MoE model
+│   ├── moe.py                # Mixture of Experts (Expert, Router, MoELayer)
+│   ├── attention.py          # Multi-head attention with RoPE
+│   ├── layers.py             # Building blocks (RMSNorm, RoPE, TransformerBlock)
+│   ├── trainer.py            # Training loop and optimization
+│   ├── dataset.py            # Data loading and preprocessing
+│   ├── tokenizer.py          # BPE tokenization
+│   ├── benchmarks.py         # Evaluation benchmarks
+│   ├── report.py             # Report generation
+│   └── utils.py              # Configuration and device management
+├── scripts/                   # Executable scripts
+│   ├── train.py              # Training script
+│   ├── inference.py          # Batch inference
+│   ├── interactive.py        # Interactive terminal chat
+│   ├── evaluate.py           # Evaluation and reporting
+│   └── chat_server.py        # Web chat server (FastAPI)
+├── frontend/                  # React web UI
+│   ├── src/                  # Source code
+│   │   ├── api/              # FastAPI streaming client
+│   │   ├── components/       # React components
+│   │   ├── App.tsx           # Main app component
+│   │   ├── theme.ts          # MUI theme
+│   │   └── styles.css        # Global styles
+│   ├── package.json          # Node dependencies
+│   ├── vite.config.ts        # Build configuration
+│   └── README.md             # Frontend documentation
+├── prebuilt_frontend/         # Built React app (gitignored)
+│   └── dist/                 # Served by chat_server
+├── dataset/                   # Downloaded datasets (gitignored)
+│   └── tiny_shakespeare/     # Default dataset
+├── trained_models/            # Model checkpoints (gitignored)
+│   ├── model_*.pt            # Trained models
+│   └── vocab_*.txt           # Tokenizer vocabularies
+├── docs/                      # Documentation
+│   ├── chat_ui.md            # Web chat UI guide
+│   └── ...                   # Other guides
+├── logs/                      # Training logs
+├── config.hocon              # Configuration file
+├── DATASETS.md               # Dataset guide
+├── EVALUATION.md             # Evaluation guide
+├── pyproject.toml            # Python project config & dependencies
+├── README.md                 # This file
+└── icon.png                  # Project icon
+```
+
+### Module Overview
+
+#### Core Components
+
+- **`model.py`** - The complete LLaMA4MoE model
+  - Token embeddings
+  - Transformer blocks with MoE
+  - Language modeling head
+  - Generation with sampling strategies
+
+- **`moe.py`** - Mixture of Experts implementation
+  - `Expert`: Individual feed-forward networks
+  - `Router`: Selects which experts to activate
+  - `MoELayer`: Combines routing and expert processing
+
+- **`attention.py`** - Multi-head self-attention
+  - Query, Key, Value projections
+  - Causal masking for autoregressive generation
+  - Optional rotary positional embeddings
+
+- **`layers.py`** - Fundamental building blocks
+  - `RMSNorm`: Root Mean Square normalization
+  - `RotaryPositionalEmbeddings`: RoPE implementation
+  - `TransformerBlock`: Attention + MoE with residual connections
+
+- **`trainer.py`** - Training infrastructure
+  - Mixed precision training (AMP)
+  - Multi-GPU support (DataParallel)
+  - Gradient clipping and optimization
+  - Checkpointing and evaluation
+
+- **`dataset.py`** - Data utilities
+  - `TextDataset`: Tokenized sequences
+  - `prepare_dataset`: Download and prepare data
+  - Support for Tiny Shakespeare and HuggingFace datasets
+
+- **`tokenizer.py`** - BPE tokenization
+  - Training BPE from text
+  - Encoding/decoding
+  - Special token handling
+
+- **`utils.py`** - Helper functions
+  - Configuration loading (HOCON)
+  - Device setup (CPU/CUDA/MPS)
+  - Model inspection utilities
+
+- **`benchmarks.py`** - Evaluation suite
+  - Perplexity and accuracy metrics
+  - Generation quality tests
+  - Counting and math benchmarks
+  - Framework for standard benchmarks (ARC, MMLU, etc.)
+
+- **`report.py`** - Report generation
+  - Markdown report formatting
+  - Model and training information
+  - Benchmark visualization
+  - Customizable sections
 
 ## ⚙️ Configuration
 
-Create a `config.hocon` file with the following structure: 
-
-A sample hocon file is provided in this project.
+Configuration is managed through `config.hocon` (Human-Optimized Config Object Notation):
 
 ```hocon
 {
-  # Model architecture configuration
+  # Model architecture
   model {
-    dim = 256         # Model dimension
-    num_layers = 4    # Number of transformer layers
-    num_heads = 8     # Number of attention heads
-    num_experts = 8   # Number of experts in MoE layer
-    top_k = 2         # Number of experts to select per token
-    max_seq_len = 128 # Maximum sequence length
-    dropout = 0.1     # Dropout rate
-    shared_expert = true  # Include a shared expert
-    load_balancing_loss_coef = 0.01  # Coefficient for load balancing loss
+    dim = 256              # Model dimension
+    num_layers = 4         # Transformer layers
+    num_heads = 8          # Attention heads
+    num_experts = 8        # Number of experts
+    top_k = 2              # Experts activated per token
+    max_seq_len = 256      # Maximum sequence length
+    dropout = 0.1          # Dropout rate
+    shared_expert = true   # Include shared expert
+    load_balancing_loss_coef = 0.01  # Load balancing weight
   }
-  
+
   # Device configuration
   device {
-    type = "auto"  # "auto", "cpu", "cuda", "mps"
-    num_cpu_threads = -1  # Uses all but 2 cores (-1 = auto)
-    num_cpu_interop_threads = 2  # Number of CPU interop threads
-    gpu_ids = [0]  # GPUs to use (for DataParallel)
-    use_mps = true  # Whether to use Apple's Metal Performance Shaders (for Macs)
+    type = "auto"          # "auto", "cpu", "cuda", "mps"
+    num_cpu_threads = -1   # -1 = use all but 2 cores
+    gpu_ids = [0]          # GPUs for DataParallel
+    use_mps = false        # Use Apple Metal
   }
-  
+
   # Training configuration
   training {
     batch_size = 16
     learning_rate = 3e-4
     epochs = 3
     eval_steps = 100
-    dataset = "tiny_shakespeare"  # Can be changed to other datasets
-    seq_len = 128
-    data_dir = "data"  # Directory to store datasets
-    num_workers = 4  # Number of data loading workers
+    dataset = "tiny_shakespeare"
+    seq_len = 256
+    num_workers = 4
   }
-  
+
   # Inference configuration
   inference {
-    max_new_tokens = 50
-    temperature = 0.7
-    top_k = null
-    top_p = null
+    max_new_tokens = 200
+    temperature = 0.8
+    top_k = 50
+    top_p = 0.95
   }
-  
-  # Paths configuration
+
+  # Paths
   paths {
-    model_path = "./llama4_moe_model"
+    model_path = "./trained_models"
     output_dir = "./model"
   }
 }
 ```
 
-## 🚀 Training Your Model
+## 📊 Working with Datasets
 
-### Basic Training
+### Default Dataset: Tiny Shakespeare
+
+The default configuration uses **Tiny Shakespeare** (~1MB), which automatically downloads to `dataset/`:
+
 ```bash
-python -m moellama
+python -m scripts.train  # Downloads and caches to dataset/tiny_shakespeare/
 ```
 
-This will:
-- Download and prepare the dataset (if using tiny_shakespeare)
-- Build the vocabulary
-- Train the model for the specified number of epochs
-- Save the model and tokenizer to the output directory
-- Generate a sample text using the trained model
+### Using HuggingFace Datasets
 
-### Monitoring Training
-Training logs are saved to `llama4_moe.log`. You can monitor training progress with:
-```bash
-tail -f llama4_moe.log
-```
+Use any text dataset from HuggingFace by editing `config.hocon`:
 
-### Advanced Training Options
-
-**Multi-GPU Training** (update config.hocon):
-```hocon
-device {
-  type = "cuda"
-  gpu_ids = [0, 1, 2, 3]
-  use_data_parallel = true
-}
-```
-
-**CPU Core Management** (for better system responsiveness):
-```hocon
-device {
-  type = "cpu"
-  num_cpu_threads = -1  # Uses all but 2 cores
-  num_cpu_interop_threads = 2
-}
-```
-
-**Using Different Datasets**:
 ```hocon
 training {
-  dataset = "wikitext"  # Or any Hugging Face dataset
+  dataset = "wikitext"     # Change to any HF dataset
+  data_dir = "dataset"     # Cached here (gitignored)
+  ...
 }
 ```
 
-## 💬 Inference with Your Trained Model
+**Popular Options:**
+- `tiny_shakespeare` - 1MB, Shakespeare (default)
+- `wikitext` - 500MB, Wikipedia articles
+- `openwebtext` - 38GB, web pages from Reddit
+- `bookcorpus` - 5GB, books
+- Browse more: https://huggingface.co/datasets?task_categories=text-generation
 
-### Basic Inference
+### Using Custom Datasets
+
+**Quick Start** - Place your text files in `dataset/`:
+
 ```bash
-python infermoe.py
+mkdir -p dataset/my_data
+echo "Your training text..." > dataset/my_data/data.txt
 ```
 
-This will run a basic inference example with predefined prompts.
-
-### Interactive Mode (Recommended)
-```bash
-python infermoe.py -i
+Then modify `config.hocon`:
+```hocon
+training {
+  dataset = "my_data"  # Add custom loader in dataset.py
+}
 ```
 
-### Stdin mode
-```bash
-echo -e "Hello\nHow are you?\nTell me a story" | python infermoe.py --stdin
+**Complete Guide**: See [DATASETS.md](DATASETS.md) for:
+- Loading custom text files
+- Using JSON/JSONL data
+- Processing multiple files
+- Preprocessing and augmentation
+- Memory management for large datasets
+
+### Dataset Directory Structure
+
+```
+dataset/                    # All datasets (gitignored)
+├── tiny_shakespeare/       # Default dataset
+├── wikitext/              # HuggingFace datasets
+└── my_custom_data/        # Your custom data
 ```
 
-### Custom prompt
+## 🚀 Usage
+
+### Training a Model
+
+Train a new model from scratch:
+
 ```bash
-python infermoe.py \
-  --prompt "The future of AI" \
-  --max-new-tokens 100 \
+python -m scripts.train
+```
+
+With custom configuration:
+
+```bash
+python -m scripts.train --config custom_config.hocon
+```
+
+The training script will:
+1. Download the dataset (Tiny Shakespeare by default to `dataset/`)
+2. Train the BPE tokenizer on your dataset
+3. Create and train the MoE model
+4. Save checkpoints periodically
+5. Generate sample text to verify the model
+6. Create training history plots
+
+**Training logs** are saved to `logs/train.log`.
+
+### Batch Inference
+
+Generate text from prompts:
+
+```bash
+# Single prompt
+python -m scripts.inference --prompt "The future of AI is"
+
+# Multiple prompts from file
+python -m scripts.inference --prompts-file prompts.txt
+
+# Custom parameters
+python -m scripts.inference \
+  --prompt "Once upon a time" \
+  --max-tokens 100 \
   --temperature 0.9 \
   --top-k 40 \
-  --top-p 0.9
+  --top-p 0.95
 ```
 
-### Use verbose flag to get token accounting
+### Interactive Chat
+
+**Terminal Interface:**
+
 ```bash
-python -m infermoe -i -v
+python -m scripts.interactive
+
+# With verbose statistics
+python -m scripts.interactive --verbose
 ```
 
-This starts an interactive session where you can:
-- Enter custom prompts
-- Adjust generation parameters (temperature, top_k, top_p)
-- See detailed generation statistics
+**Interactive commands:**
+- Type your prompt and press Enter to generate
+- Type `params` to adjust generation parameters
+- Type `exit` or `quit` to quit
+- Press Ctrl+C to interrupt generation
 
-Example interactive session:
+**Web Interface:**
+
+Launch the web-based chat UI with streaming responses. Built with **React**, **@assistant-ui/react**, and **Material-UI**.
+
+**First Time Setup:**
+```bash
+# Install frontend dependencies (using yarn)
+cd frontend
+yarn install
+
+# Build the frontend
+yarn build
+
+# Return to project root
+cd ..
 ```
-Starting interactive inference session. Type 'exit' to quit.
 
-Prompt: The future of AI is
-Max new tokens (default 50): 100
-Temperature (default 0.7): 0.85
-Top-k (default None): 50
-Top-p (default None): 0.9
+Or use the build script from project root:
+```bash
+bash scripts/build_frontend.sh
+```
+
+This builds the React app to `prebuilt_frontend/dist/` which the FastAPI server will serve.
+
+**Start the Server:**
+```bash
+# Start the chat server
+python -m scripts.chat_server
+
+# Open browser to http://localhost:8000
+```
+
+**Features:**
+- 🌊 **Streaming responses** - Watch text generate in real-time
+- 🔄 **Model selection** - Switch between trained checkpoints
+- 💬 **Modern UI** - Clean, responsive interface with Material-UI
+- ⚙️ **Generation controls** - Adjust temperature, max tokens, top-k, top-p
+- 📊 **Session tracking** - Maintain conversation context
+- 🚀 **FastAPI backend** - Production-ready with async support
+
+**Development Mode:**
+
+For frontend development with hot reload:
+```bash
+# Terminal 1: Start backend in dev mode
+python -m scripts.chat_server --dev-mode
+
+# Terminal 2: Start frontend dev server
+cd frontend
+yarn dev
+# Opens at http://localhost:5173
+```
+
+**Custom Server Options:**
+```bash
+# Custom port
+python -m scripts.chat_server --port 8080
+
+# Bind to all interfaces (remote access)
+python -m scripts.chat_server --host 0.0.0.0
+```
+
+📖 **Complete guides:**
+- [docs/chat_ui.md](docs/chat_ui.md) - Backend API documentation, deployment
+- [frontend/README.md](frontend/README.md) - Frontend development, customization
+
+---
+
+**Sample Interaction** with a model trained on tiny_shakespeare dataset:
+
+```markdown
+Prompt: what say you
 
 Generating...
 
-=== Generated Text ===
-The future of AI is increasingly intertwined with human creativity and decision-making processes. As we continue to develop more sophisticated models, the line between human and machine intelligence becomes more blurred. This evolution is not just about technological advancement but also about how we, as a society, choose to integrate these tools into our daily lives. The ethical considerations surrounding AI development are becoming more prominent, with discussions about bias, privacy, and the potential for job displacement. Despite these challenges, the potential benefits of AI are immense, from healthcare advancements to climate change solutions. The key will be finding the right balance between innovation and responsibility.
+================================================================================
+Generated Text:
+--------------------------------------------------------------------------------
+what say you at : I shall be the night . QUEEN MARGARET : O , the duke , I have be no too . You ' s a man , we have I have thee . LADY LADY CAPULET : The father , I , I speak , my son . Second First Murderer : O , he shall I have your blood : What have not ' s a a man ' d to me , That have been the time . LUCIO : O , this . DUKE VINCENTIO : I I am this . I ' s the heart ! DUKE VINCENTIO : Ay , my brother , let me , let you am have the other s life : I ' Tis ' s , I will be be your body . HENRY BOLINGBROKE : Why , so ? O , they ' ll see ' s with me . Why , and me , and I have been it will ; And so I think thou do my good your queen : And that you I know with a a man : And not , and a son ' d , let : I I am not
+--------------------------------------------------------------------------------
 
-=== New Completion ===
- increasingly intertwined with human creativity and decision-making processes. As we continue to develop more sophisticated models, the line between human and machine intelligence becomes more blurred. This evolution is not just about technological advancement but also about how we, as a society, choose to integrate these tools into our daily lives. The ethical considerations surrounding AI development are becoming more prominent, with discussions about bias, privacy, and the potential for job displacement. Despite these challenges, the potential benefits of AI are immense, from healthcare advancements to climate change solutions. The key will be finding the right balance between innovation and responsibility.
+Stats: 204 tokens, 27.13 tokens/sec
+================================================================================
 
-Stats: 118 total tokens, 5.89 tokens/sec
+Prompt: exit
+Goodbye!
 ```
 
-### One-off Prompt Generation
+Hooray! the response looks as good as the model is and as good as the data it's trained upon.
+
+---
+
+## 📈 Model Evaluation & Benchmarking
+
+Evaluate your trained model with comprehensive benchmarks and generate a detailed report.
+
+### Running Evaluation
+
 ```bash
-python infermoe.py --prompt "The future of AI is"
+# Evaluate the latest trained model
+python -m scripts.evaluate
+
+# Evaluate a specific checkpoint
+python -m scripts.evaluate --model-file path/to/model.pt
+
+# Custom output location
+python -m scripts.evaluate --output my_report.md
 ```
 
-## 🔍 Understanding MoE Architecture
+### Available Benchmarks
 
-Unlike traditional transformer models that use a single feed-forward network per layer, LLaMA4MoE uses a Mixture of Experts approach:
+The evaluation suite includes:
 
-1. **Router Network**: Determines which experts should process each token
-2. **Expert Networks**: Specialized feed-forward networks that handle specific token types
-3. **Load Balancing**: Ensures all experts get adequate training
+**Implemented Benchmarks:**
+- **Perplexity** - How well the model predicts next tokens (lower is better)
+- **Token Accuracy** - Percentage of correct predictions
+- **Generation Quality** - Sample text generation with custom prompts
+- **Counting Ability** - Letter counting tasks (e.g., "How many 'r's in 'strawberry'?")
+- **Simple Math** - Basic arithmetic (single-digit addition/subtraction)
 
-When the model processes a token like "was", the router might select Expert 1 (70%) and Expert 3 (30%) while ignoring Experts 2 and 4. This selective activation makes the model more efficient while maintaining high performance.
+**Future Benchmarks** (placeholders for implementation):
+- ARC-Easy & ARC-Challenge - AI2 Reasoning Challenge
+- MMLU - Massive Multitask Language Understanding
+- GSM8K - Grade School Math problems
+- HumanEval - Code generation evaluation
+- ChatCORE - Chat-oriented reasoning
+
+### Configuration
+
+Control evaluation via `config.hocon`:
+
+```hocon
+evaluation {
+  enabled = true  # Enable/disable evaluation
+
+  # Select which benchmarks to run
+  enabled_benchmarks = [
+    "perplexity",
+    "accuracy",
+    "generation",
+    "counting",
+    "simple_math"
+  ]
+
+  # Custom test prompts for generation
+  test_prompts = [
+    "Once upon a time",
+    "The future of AI is",
+    "In a distant land"
+  ]
+
+  # Report output location
+  report_path = "report.md"
+}
+```
+
+### Generated Report
+
+The evaluation generates a markdown report including:
+
+- **Model Architecture** - Parameter counts, configuration
+- **Training Details** - Dataset, hyperparameters, optimizer
+- **Benchmark Results** - Detailed scores with explanations
+- **Generation Samples** - Example outputs from the model
+- **Summary Table** - Quick overview of all metrics
+
+**Example report structure:**
+```
+# Model Evaluation Report
+
+## Model Architecture
+| Component | Value |
+|-----------|-------|
+| Model Type | Mixture of Experts |
+| Total Parameters | 2.5M |
+...
+
+## Summary
+| Metric | Score |
+|--------|-------|
+| Perplexity | 45.2 |
+| Token Accuracy | 32.5% |
+...
+
+## Generation Samples
+...
+```
+
+### Programmatic Usage
+
+You can also run evaluations programmatically:
+
+```python
+from moellama import run_benchmarks, generate_report
+
+# Run benchmarks
+results = run_benchmarks(model, tokenizer, device, config, eval_dataset)
+
+# Generate report
+generate_report(model, config, results, output_path="report.md")
+```
+
+### Adding Custom Benchmarks
+
+To add your own benchmark:
+
+1. Add a method to `BenchmarkSuite` in `moellama/benchmarks.py`
+2. Add the benchmark name to `enabled_benchmarks` in config
+3. Update report generation if needed
+
+See [moellama/benchmarks.py](moellama/benchmarks.py) for examples.
+
+---
+
+## 📊 Model Architecture Details
+
+### Transformer Block
+
+Each transformer block consists of:
+
+```
+Input
+  ↓
+RMSNorm → Multi-Head Attention (with RoPE) → Add & Norm
+  ↓
+RMSNorm → Mixture of Experts → Add & Norm
+  ↓
+Output
+```
+
+### Mixture of Experts Layer
+
+```
+Input tokens
+  ↓
+Router (learns which experts to use)
+  ↓
+Top-k Expert Selection
+  ↓
+Expert 1    Expert 2    ...    Expert N    [Shared Expert]
+  ↓           ↓                    ↓              ↓
+Weighted combination of expert outputs
+  ↓
+Output
+```
+
+**Key mechanisms:**
+- **Router**: Linear layer + softmax to select experts
+- **Load Balancing Loss**: Encourages even expert usage
+- **Noise during training**: Prevents expert collapse
+- **Shared Expert**: Optional expert that always processes all tokens
+
+### Attention Mechanism
+
+Multi-head attention with:
+- **RoPE (Rotary Position Embeddings)**: Encodes position into Q and K
+- **Causal Masking**: Prevents attending to future tokens
+- **Multi-head**: Parallel attention with different learned projections
+
+## 🔍 Understanding the Code
+
+### Training Flow
+
+1. **Configuration** - Load from `config.hocon`
+2. **Device Setup** - Detect and configure compute device
+3. **Data Preparation** - Download, tokenize, create datasets
+4. **Model Creation** - Initialize LLaMA4MoE with config parameters
+5. **Training Loop**:
+   - Forward pass through model
+   - Compute loss (cross-entropy + load balancing)
+   - Backward pass and optimization
+   - Periodic evaluation and checkpointing
+6. **Saving** - Save final model and tokenizer
+
+### Generation Flow
+
+1. **Load Model** - Load checkpoint and tokenizer
+2. **Encode Prompt** - Convert text to token IDs
+3. **Autoregressive Generation**:
+   - Feed tokens through model
+   - Get logits for next token
+   - Apply sampling (temperature, top-k, top-p)
+   - Sample next token
+   - Append and repeat
+4. **Decode** - Convert token IDs back to text
 
 ## 🐞 Troubleshooting
 
-### Common Issues & Solutions
+### Common Issues
 
 **Vocabulary Size Mismatch**
 ```
-size mismatch for token_embeddings.weight: copying a param with shape torch.Size([68, 256]) from checkpoint, the shape in current model is torch.Size([66, 256]).
+size mismatch for token_embeddings.weight
 ```
-- **Cause**: Tokenizer vocabulary doesn't match what was used during training
-- **Solution**: Always use the same `vocab.txt` file from training for inference
+**Solution**: Use the same vocab file from training for inference.
 
-**NoneType has no attribute 'backward'**
+**Out of Memory (OOM)**
 ```
-AttributeError: 'NoneType' object has no attribute 'backward'
+RuntimeError: CUDA out of memory
 ```
-- **Cause**: Loss is None because labels weren't provided during training
-- **Solution**: Ensure you're providing labels: `outputs = self.model(input_ids, labels=input_ids, training=True)`
+**Solution**: Reduce `batch_size` in config.hocon
 
-**Interactive Mode Errors**
+**Import Errors**
 ```
-too many values to unpack (expected 2)
+ModuleNotFoundError: No module named 'moellama'
 ```
-- **Cause**: Mismatch in return values from `load_model_and_tokenizer`
-- **Solution**: Make sure the function returns model, tokenizer, and device
+**Solution**: Run scripts as modules: `python -m scripts.train`
 
-## 🌱 Contributing
+**Slow CPU Training**
+**Solution**:
+- Set `num_cpu_threads = -1` in config to use more cores
+- Consider using a GPU or reducing model size
 
-Contributions are welcome! Please open an issue or submit a pull request for any improvements.
+### Performance Tips
+
+- **GPU**: Use CUDA for 10-100x speedup
+- **Mixed Precision**: Automatically enabled on CUDA (AMP)
+- **Batch Size**: Increase if you have memory
+- **Multi-GPU**: Set `use_data_parallel = true` and `gpu_ids = [0, 1, ...]`
+- **CPU Threads**: Set `num_cpu_threads = -1` to use all but 2 cores
+
+## 📈 Example Results
+
+After training on Tiny Shakespeare:
+
+```
+Prompt: To be or not to be
+Generated: To be or not to be,
+That is the question that makes me wonder,
+Whether 'tis nobler in the mind to suffer
+The slings and arrows of outrageous fortune...
+
+Stats: 45 tokens, 8.2 tokens/sec
+```
+
+## 🤝 Contributing
+
+Contributions are welcome! This project focuses on:
+- **Clarity** - Code should be easy to understand
+- **Modularity** - Components should be independent
+- **Documentation** - Every function should have clear docstrings
+- **Educational Value** - Prioritize learning over performance
+
+## 📚 References
+
+- [Attention Is All You Need](https://arxiv.org/abs/1706.03762) - Original Transformer
+- [RoFormer](https://arxiv.org/abs/2104.09864) - Rotary Position Embeddings
+- [RMSNorm](https://arxiv.org/abs/1910.07467) - Root Mean Square Normalization
+- [Switch Transformers](https://arxiv.org/abs/2101.03961) - Sparse MoE at scale
+- [GShard](https://arxiv.org/abs/2006.16668) - Scaling with MoE
+- [LLaMA](https://arxiv.org/abs/2302.13971) - Efficient large language models
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## 🙏 Acknowledgments
+
+- Inspired by the LLaMA architecture from Meta AI
+- Built for educational purposes to understand MoE architectures
+- Thanks to the PyTorch and HuggingFace communities
+
 ---
 
 > "The future of AI isn't about replacing humans, but about creating tools that enhance our capabilities while respecting our values." - moellama Team
+
+**Happy Learning! 🚀**

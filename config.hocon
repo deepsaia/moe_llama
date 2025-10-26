@@ -28,9 +28,9 @@
     learning_rate = 3e-4
     epochs = 3
     eval_steps = 100
-    dataset = "tiny_shakespeare"  # Can be changed to other datasets
+    dataset = "tiny_shakespeare"  # "tiny_shakespeare" or any HuggingFace dataset
     seq_len = 256
-    data_dir = "data"  # Directory to store datasets
+    data_dir = "dataset"  # Directory to store downloaded datasets
     num_workers = 4  # Number of data loading workers
   }
   
@@ -44,7 +44,38 @@
   
   # Paths configuration
   paths {
-    model_path = "./llama4_moe_model"
-    output_dir = "./model"
+    model_path = "./trained_models"  # Directory for trained model checkpoints
+    output_dir = "./model"           # Temporary output directory during training
+  }
+
+  # Evaluation configuration
+  evaluation {
+    enabled = true  # Set to false to skip evaluation
+
+    # Which benchmarks to run (can enable/disable individually)
+    enabled_benchmarks = [
+      "perplexity",      # Model's prediction quality
+      "accuracy",        # Token accuracy
+      "generation",      # Sample text generation
+      "counting",        # Letter counting ability
+      "simple_math"      # Basic arithmetic
+      # Standard benchmarks (not yet implemented):
+      # "ARC-Easy", "ARC-Challenge", "MMLU", "GSM8K", "HumanEval", "ChatCORE"
+    ]
+
+    # Evaluation parameters
+    batch_size = 16
+
+    # Generation evaluation settings
+    test_prompts = [
+      "Once upon a time",
+      "The future of",
+      "In a distant land"
+    ]
+    generation_max_tokens = 50
+    generation_temperature = 0.8
+
+    # Report output
+    report_path = "report.md"
   }
 }
