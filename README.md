@@ -58,55 +58,6 @@ source .venv/bin/activate
 
 ## 📁 Project Structure
 
-```
-moe_llama/
-├── moellama/                  # Core library (modular components)
-│   ├── __init__.py           # Package initialization
-│   ├── model.py              # Complete LLaMA4MoE model
-│   ├── moe.py                # Mixture of Experts (Expert, Router, MoELayer)
-│   ├── attention.py          # Multi-head attention with RoPE
-│   ├── layers.py             # Building blocks (RMSNorm, RoPE, TransformerBlock)
-│   ├── trainer.py            # Training loop and optimization
-│   ├── dataset.py            # Data loading and preprocessing
-│   ├── tokenizer.py          # BPE tokenization
-│   ├── benchmarks.py         # Evaluation benchmarks
-│   ├── report.py             # Report generation
-│   └── utils.py              # Configuration and device management
-├── scripts/                   # Executable scripts
-│   ├── train.py              # Training script
-│   ├── inference.py          # Batch inference
-│   ├── interactive.py        # Interactive terminal chat
-│   ├── evaluate.py           # Evaluation and reporting
-│   └── chat_server.py        # Web chat server (FastAPI)
-├── frontend/                  # React web UI
-│   ├── src/                  # Source code
-│   │   ├── api/              # FastAPI streaming client
-│   │   ├── components/       # React components
-│   │   ├── App.tsx           # Main app component
-│   │   ├── theme.ts          # MUI theme
-│   │   └── styles.css        # Global styles
-│   ├── package.json          # Node dependencies
-│   ├── vite.config.ts        # Build configuration
-│   └── README.md             # Frontend documentation
-├── prebuilt_frontend/         # Built React app (gitignored)
-│   └── dist/                 # Served by chat_server
-├── dataset/                   # Downloaded datasets (gitignored)
-│   └── tiny_shakespeare/     # Default dataset
-├── trained_models/            # Model checkpoints (gitignored)
-│   ├── model_*.pt            # Trained models
-│   └── vocab_*.txt           # Tokenizer vocabularies
-├── docs/                      # Documentation
-│   ├── chat_ui.md            # Web chat UI guide
-│   └── ...                   # Other guides
-├── logs/                      # Training logs
-├── config.hocon              # Configuration file
-├── DATASETS.md               # Dataset guide
-├── EVALUATION.md             # Evaluation guide
-├── pyproject.toml            # Python project config & dependencies
-├── README.md                 # This file
-└── icon.png                  # Project icon
-```
-
 ### Module Overview
 
 #### Core Components
@@ -345,7 +296,7 @@ python -m scripts.interactive --verbose
 
 **Web Interface:**
 
-Launch the web-based chat UI with streaming responses. Built with **React**, **@assistant-ui/react**, and **Material-UI**.
+Launch the modern web-based chat UI with streaming responses and thread management. Built with **React**, **@assistant-ui/react**, **Tailwind CSS**, and **FastAPI**.
 
 **First Time Setup:**
 ```bash
@@ -376,12 +327,17 @@ python -m scripts.chat_server
 ```
 
 **Features:**
-- 🌊 **Streaming responses** - Watch text generate in real-time
-- 🔄 **Model selection** - Switch between trained checkpoints
-- 💬 **Modern UI** - Clean, responsive interface with Material-UI
+- 🌊 **Streaming responses** - Real-time text generation with Server-Sent Events
+- 💬 **Thread management** - Create, switch between, and manage multiple conversation threads
+- 🔄 **Model selection** - Switch between trained checkpoints on the fly
+- 💾 **Message persistence** - All conversations saved to localStorage for later access
+- 🌓 **Dark/Light theme** - Toggle between themes with smooth transitions
+- 🎨 **Modern UI** - Clean, responsive interface built with Tailwind CSS and @assistant-ui/react primitives
 - ⚙️ **Generation controls** - Adjust temperature, max tokens, top-k, top-p
-- 📊 **Session tracking** - Maintain conversation context
-- 🚀 **FastAPI backend** - Production-ready with async support
+- 📝 **Full message history** - View complete conversation history when switching threads
+- 🗑️ **Thread deletion** - Remove unwanted conversations
+- 🚀 **FastAPI backend** - Production-ready async API with streaming support
+- 📱 **Responsive design** - Works seamlessly on desktop and mobile
 
 **Development Mode:**
 
