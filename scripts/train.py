@@ -16,6 +16,7 @@ Usage:
 
 import argparse
 import logging
+import os
 import random
 
 import numpy as np
@@ -30,6 +31,9 @@ from moellama import (
     load_config
 )
 from moellama.utils import log_model_info, set_seed
+
+# Ensure the logs directory exists
+os.makedirs("logs", exist_ok=True)
 
 # Configure logging
 logging.basicConfig(

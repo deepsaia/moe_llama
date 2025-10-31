@@ -657,7 +657,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- Inspired by the LLaMA architecture from Meta AI
 - Built for educational purposes to understand MoE architectures
 - Thanks to the PyTorch and HuggingFace communities
 
