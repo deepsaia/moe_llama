@@ -1,7 +1,7 @@
 # 🌟 moellama: Mixture of Experts Language Model
 
 <div align="center">
-  <img src="icon.png" alt="MoE Architecture" width="40%"/>
+  <img src="icon.png" alt="MoE Architecture" width="20%"/>
 </div>
 
 A clean, modular, educational implementation of the **Mixture of Experts (MoE)** architecture. This project provides a full-stack implementation of MoE from scratch, designed for learning and experimentation.
