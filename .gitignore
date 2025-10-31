@@ -3,6 +3,10 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# macOS folder metadata
+.DS_Store
+/coded_tools/PentOps/vector_store/
+
 # C extensions
 *.so
 
@@ -17,7 +21,6 @@ build/
 
 # Frontend
 frontend/node_modules/
-prebuilt_frontend/
 
 # Evaluation reports
 report.md
@@ -27,7 +30,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
@@ -218,3 +220,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# keep the dist for prebuilt_frontend
+!prebuilt_frontend/dist/
+!prebuilt_frontend/dist/**
