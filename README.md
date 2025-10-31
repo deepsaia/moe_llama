@@ -1,7 +1,7 @@
 # 🌟 moellama: Mixture of Experts Language Model
 
 <div align="center">
-  <img src="icon.png" alt="MoE Architecture" width="20%"/>
+  <img src="docs/assets/icon.png" alt="MoE Architecture" width="20%"/>
 </div>
 
 A clean, modular, educational implementation of the **Mixture of Experts (MoE)** architecture. This project provides a full-stack implementation of MoE from scratch, designed for learning and experimentation.
@@ -31,6 +31,172 @@ uv venv
 uv sync
 source .venv/bin/activate
 ```
+
+---
+
+## 🚀 Usage
+
+### Training a Model
+
+Train a new model from scratch:
+
+```bash
+python -m scripts.train
+```
+
+With custom configuration:
+
+```bash
+python -m scripts.train --config custom_config.hocon
+```
+
+The training script will:
+1. Download the dataset (Tiny Shakespeare by default to `dataset/`)
+2. Train the BPE tokenizer on your dataset
+3. Create and train the MoE model
+4. Save checkpoints periodically
+5. Generate sample text to verify the model
+6. Create training history plots
+
+**Training logs** are saved to `logs/train.log`.
+
+### Batch Inference
+
+Generate text from prompts:
+
+```bash
+# Single prompt
+python -m scripts.inference --prompt "The future of AI is"
+
+# Multiple prompts from file
+python -m scripts.inference --prompts-file prompts.txt
+
+# Custom parameters
+python -m scripts.inference \
+  --prompt "Once upon a time" \
+  --max-tokens 100 \
+  --temperature 0.9 \
+  --top-k 40 \
+  --top-p 0.95
+```
+
+### Interactive Chat
+
+**Terminal Interface:**
+
+```bash
+python -m scripts.interactive
+
+# With verbose statistics
+python -m scripts.interactive --verbose
+```
+
+**Interactive commands:**
+- Type your prompt and press Enter to generate
+- Type `params` to adjust generation parameters
+- Type `exit` or `quit` to quit
+- Press Ctrl+C to interrupt generation
+
+**Web Interface:**
+
+Launch the modern web-based chat UI with streaming responses and thread management. Built with **React**, **@assistant-ui/react**, **Tailwind CSS**, and **FastAPI**.
+
+**First Time Setup:**
+```bash
+# Install frontend dependencies (using yarn)
+cd frontend
+yarn install
+
+# Build the frontend
+yarn build
+
+# Return to project root
+cd ..
+```
+
+Or use the build script from project root:
+```bash
+bash scripts/build_frontend.sh
+```
+
+This builds the React app to `prebuilt_frontend/dist/` which the FastAPI server will serve.
+
+**Start the Server:**
+```bash
+# Start the chat server
+python -m scripts.chat_server
+
+# Open browser to http://localhost:8000
+```
+<div align="center">
+  <img src="docs/assets/snap01.png" alt="Interactive Chat" width="80%"/>
+</div>
+
+
+**Features:**
+- 🌊 **Streaming responses** - Real-time text generation with Server-Sent Events
+- 💬 **Thread management** - Create, switch between, and manage multiple conversation threads
+- 🔄 **Model selection** - Switch between trained checkpoints on the fly
+- 💾 **Message persistence** - All conversations saved to localStorage for later access
+- 🌓 **Dark/Light theme** - Toggle between themes with smooth transitions
+- 🎨 **Modern UI** - Clean, responsive interface built with Tailwind CSS and @assistant-ui/react primitives
+- ⚙️ **Generation controls** - Adjust temperature, max tokens, top-k, top-p
+- 📝 **Full message history** - View complete conversation history when switching threads
+- 🗑️ **Thread deletion** - Remove unwanted conversations
+- 🚀 **FastAPI backend** - Production-ready async API with streaming support
+- 📱 **Responsive design** - Works seamlessly on desktop and mobile
+
+**Development Mode:**
+
+For frontend development with hot reload:
+```bash
+# Terminal 1: Start backend in dev mode
+python -m scripts.chat_server --dev-mode
+
+# Terminal 2: Start frontend dev server
+cd frontend
+yarn dev
+# Opens at http://localhost:5173
+```
+
+**Custom Server Options:**
+```bash
+# Custom port
+python -m scripts.chat_server --port 8080
+
+# Bind to all interfaces (remote access)
+python -m scripts.chat_server --host 0.0.0.0
+```
+
+📖 **Complete guides:**
+- [docs/chat_ui.md](docs/chat_ui.md) - Backend API documentation, deployment
+- [frontend/README.md](frontend/README.md) - Frontend development, customization
+
+---
+
+**Sample Interaction** with a model trained on tiny_shakespeare dataset:
+
+```markdown
+Prompt: what say you
+
+Generating...
+
+================================================================================
+Generated Text:
+--------------------------------------------------------------------------------
+what say you at : I shall be the night . QUEEN MARGARET : O , the duke , I have be no too . You ' s a man , we have I have thee . LADY LADY CAPULET : The father , I , I speak , my son . Second First Murderer : O , he shall I have your blood : What have not ' s a a man ' d to me , That have been the time . LUCIO : O , this . DUKE VINCENTIO : I I am this . I ' s the heart ! DUKE VINCENTIO : Ay , my brother , let me , let you am have the other s life : I ' Tis ' s , I will be be your body . HENRY BOLINGBROKE : Why , so ? O , they ' ll see ' s with me . Why , and me , and I have been it will ; And so I think thou do my good your queen : And that you I know with a a man : And not , and a son ' d , let : I I am not
+--------------------------------------------------------------------------------
+
+Stats: 204 tokens, 27.13 tokens/sec
+================================================================================
+
+Prompt: exit
+Goodbye!
+```
+
+Hooray! the response looks as good as the model is and as good as the data it's trained upon.
+
+---
 
 ## ✨ Key Features
 
@@ -230,164 +396,6 @@ dataset/                    # All datasets (gitignored)
 ├── wikitext/              # HuggingFace datasets
 └── my_custom_data/        # Your custom data
 ```
-
-## 🚀 Usage
-
-### Training a Model
-
-Train a new model from scratch:
-
-```bash
-python -m scripts.train
-```
-
-With custom configuration:
-
-```bash
-python -m scripts.train --config custom_config.hocon
-```
-
-The training script will:
-1. Download the dataset (Tiny Shakespeare by default to `dataset/`)
-2. Train the BPE tokenizer on your dataset
-3. Create and train the MoE model
-4. Save checkpoints periodically
-5. Generate sample text to verify the model
-6. Create training history plots
-
-**Training logs** are saved to `logs/train.log`.
-
-### Batch Inference
-
-Generate text from prompts:
-
-```bash
-# Single prompt
-python -m scripts.inference --prompt "The future of AI is"
-
-# Multiple prompts from file
-python -m scripts.inference --prompts-file prompts.txt
-
-# Custom parameters
-python -m scripts.inference \
-  --prompt "Once upon a time" \
-  --max-tokens 100 \
-  --temperature 0.9 \
-  --top-k 40 \
-  --top-p 0.95
-```
-
-### Interactive Chat
-
-**Terminal Interface:**
-
-```bash
-python -m scripts.interactive
-
-# With verbose statistics
-python -m scripts.interactive --verbose
-```
-
-**Interactive commands:**
-- Type your prompt and press Enter to generate
-- Type `params` to adjust generation parameters
-- Type `exit` or `quit` to quit
-- Press Ctrl+C to interrupt generation
-
-**Web Interface:**
-
-Launch the modern web-based chat UI with streaming responses and thread management. Built with **React**, **@assistant-ui/react**, **Tailwind CSS**, and **FastAPI**.
-
-**First Time Setup:**
-```bash
-# Install frontend dependencies (using yarn)
-cd frontend
-yarn install
-
-# Build the frontend
-yarn build
-
-# Return to project root
-cd ..
-```
-
-Or use the build script from project root:
-```bash
-bash scripts/build_frontend.sh
-```
-
-This builds the React app to `prebuilt_frontend/dist/` which the FastAPI server will serve.
-
-**Start the Server:**
-```bash
-# Start the chat server
-python -m scripts.chat_server
-
-# Open browser to http://localhost:8000
-```
-
-**Features:**
-- 🌊 **Streaming responses** - Real-time text generation with Server-Sent Events
-- 💬 **Thread management** - Create, switch between, and manage multiple conversation threads
-- 🔄 **Model selection** - Switch between trained checkpoints on the fly
-- 💾 **Message persistence** - All conversations saved to localStorage for later access
-- 🌓 **Dark/Light theme** - Toggle between themes with smooth transitions
-- 🎨 **Modern UI** - Clean, responsive interface built with Tailwind CSS and @assistant-ui/react primitives
-- ⚙️ **Generation controls** - Adjust temperature, max tokens, top-k, top-p
-- 📝 **Full message history** - View complete conversation history when switching threads
-- 🗑️ **Thread deletion** - Remove unwanted conversations
-- 🚀 **FastAPI backend** - Production-ready async API with streaming support
-- 📱 **Responsive design** - Works seamlessly on desktop and mobile
-
-**Development Mode:**
-
-For frontend development with hot reload:
-```bash
-# Terminal 1: Start backend in dev mode
-python -m scripts.chat_server --dev-mode
-
-# Terminal 2: Start frontend dev server
-cd frontend
-yarn dev
-# Opens at http://localhost:5173
-```
-
-**Custom Server Options:**
-```bash
-# Custom port
-python -m scripts.chat_server --port 8080
-
-# Bind to all interfaces (remote access)
-python -m scripts.chat_server --host 0.0.0.0
-```
-
-📖 **Complete guides:**
-- [docs/chat_ui.md](docs/chat_ui.md) - Backend API documentation, deployment
-- [frontend/README.md](frontend/README.md) - Frontend development, customization
-
----
-
-**Sample Interaction** with a model trained on tiny_shakespeare dataset:
-
-```markdown
-Prompt: what say you
-
-Generating...
-
-================================================================================
-Generated Text:
---------------------------------------------------------------------------------
-what say you at : I shall be the night . QUEEN MARGARET : O , the duke , I have be no too . You ' s a man , we have I have thee . LADY LADY CAPULET : The father , I , I speak , my son . Second First Murderer : O , he shall I have your blood : What have not ' s a a man ' d to me , That have been the time . LUCIO : O , this . DUKE VINCENTIO : I I am this . I ' s the heart ! DUKE VINCENTIO : Ay , my brother , let me , let you am have the other s life : I ' Tis ' s , I will be be your body . HENRY BOLINGBROKE : Why , so ? O , they ' ll see ' s with me . Why , and me , and I have been it will ; And so I think thou do my good your queen : And that you I know with a a man : And not , and a son ' d , let : I I am not
---------------------------------------------------------------------------------
-
-Stats: 204 tokens, 27.13 tokens/sec
-================================================================================
-
-Prompt: exit
-Goodbye!
-```
-
-Hooray! the response looks as good as the model is and as good as the data it's trained upon.
 
 ---
 
