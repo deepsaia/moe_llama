@@ -1,34 +1,10 @@
 # 🌟 moellama: Mixture of Experts Language Model
 
 <div align="center">
-  <img src="icon.png" alt="MoE Architecture" width="60%"/>
+  <img src="icon.png" alt="MoE Architecture" width="40%"/>
 </div>
 
 A clean, modular, educational implementation of the **Mixture of Experts (MoE)** architecture. This project provides a full-stack implementation of MoE from scratch, designed for learning and experimentation.
-
-## ✨ Key Features
-
-- **Modular Architecture** - Clean separation of concerns with distinct modules
-- **Mixture of Experts** - Sparse expert activation for efficient scaling
-- **Rotary Positional Embeddings (RoPE)** - Better positional understanding
-- **RMS Normalization** - Stable training without mean centering
-- **Load Balancing** - Prevents expert collapse during training
-- **Shared Expert Option** - Ensures certain knowledge is always available
-- **Multi-Device Support** - Works on CPU, CUDA (NVIDIA), MPS (Apple Silicon)
-- **Interactive Inference** - Real-time text generation with parameter tuning
-- **HOCON Configuration** - Easy, readable configuration files
-- **Comprehensive Documentation** - Detailed docstrings and inline comments
-
-## 📋 What is Mixture of Experts?
-
-Unlike traditional transformers that route every token through the same feed-forward network, MoE models use multiple "expert" networks. A router network decides which experts should process each token, enabling:
-
-- **Efficient Scaling** - More parameters without proportional compute cost
-- **Specialization** - Different experts learn different patterns
-- **Sparse Activation** - Only top-k experts process each token
-- **Better Performance** - Match dense models with less computation
-
-**Example**: With 8 experts and `top_k=2`, each token is processed by only 2 experts, but different tokens may select different experts based on their content.
 
 ## 🛠️ Installation
 
@@ -55,6 +31,30 @@ uv venv
 uv sync
 source .venv/bin/activate
 ```
+
+## ✨ Key Features
+
+- **Modular Architecture** - Clean separation of concerns with distinct modules
+- **Mixture of Experts** - Sparse expert activation for efficient scaling
+- **Rotary Positional Embeddings (RoPE)** - Better positional understanding
+- **RMS Normalization** - Stable training without mean centering
+- **Load Balancing** - Prevents expert collapse during training
+- **Shared Expert Option** - Ensures certain knowledge is always available
+- **Multi-Device Support** - Works on CPU, CUDA (NVIDIA), MPS (Apple Silicon)
+- **Interactive Inference** - Real-time text generation with parameter tuning
+- **HOCON Configuration** - Easy, readable configuration files
+- **Comprehensive Documentation** - Detailed docstrings and inline comments
+
+## 📋 What is Mixture of Experts?
+
+Unlike traditional transformers that route every token through the same feed-forward network, MoE models use multiple "expert" networks. A router network decides which experts should process each token, enabling:
+
+- **Efficient Scaling** - More parameters without proportional compute cost
+- **Specialization** - Different experts learn different patterns
+- **Sparse Activation** - Only top-k experts process each token
+- **Better Performance** - Match dense models with less computation
+
+**Example**: With 8 experts and `top_k=2`, each token is processed by only 2 experts, but different tokens may select different experts based on their content.
 
 ## 📁 Project Structure
 
