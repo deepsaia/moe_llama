@@ -8,11 +8,10 @@ token embeddings, transformer blocks with MoE, and the language modeling head.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import logging
+from loguru import logger
 
 from moellama.layers import TransformerBlock, RMSNorm
 
-logger = logging.getLogger(__name__)
 
 
 class LLaMA4MoE(nn.Module):

@@ -15,7 +15,8 @@ Usage:
 """
 
 import argparse
-import logging
+from loguru import logger
+from moellama.logging_setup import setup_logging
 import os
 import random
 
@@ -36,15 +37,7 @@ from moellama.utils import log_model_info, set_seed
 os.makedirs("logs", exist_ok=True)
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("logs/train.log"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+setup_logging()
 
 
 def main():
@@ -56,7 +49,7 @@ def main():
     parser.add_argument(
         "--config",
         type=str,
-        default="config.hocon",
+        default="config/config.hocon",
         help="Path to configuration file (default: config.hocon)"
     )
     parser.add_argument(
@@ -83,7 +76,7 @@ def main():
 
         # Prepare dataset
         logger.info("Preparing dataset...")
-        train_dataset, eval_dataset, tokenizer = prepare_dataset(config)
+        train_dataset, eval_dataset, tokenizer = prepare_dataset(config, device=device)
 
         # Update vocabulary size in config
         vocab_size = len(tokenizer)
@@ -142,7 +135,8 @@ def main():
             epochs=config["training"]["epochs"],
             eval_steps=config["training"]["eval_steps"],
             output_dir=config["paths"]["output_dir"],
-            num_workers=config["training"].get("num_workers", 4)
+            num_workers=config["training"].get("num_workers", 4),
+            max_eval_batches=config["training"].get("max_eval_batches", None)
         )
 
         # Generate training history plot

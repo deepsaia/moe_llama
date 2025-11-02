@@ -11,7 +11,8 @@ Usage:
 """
 
 import argparse
-import logging
+from loguru import logger
+from moellama.logging_setup import setup_logging
 import os
 from pathlib import Path
 
@@ -28,11 +29,7 @@ from moellama.benchmarks import run_benchmarks
 from moellama.report import generate_report
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+setup_logging()
 
 
 def find_latest_file(directory, pattern):
@@ -122,7 +119,7 @@ def main():
     parser.add_argument(
         "--config",
         type=str,
-        default="config.hocon",
+        default="config/config.hocon",
         help="Path to configuration file"
     )
     parser.add_argument(
@@ -178,7 +175,7 @@ def main():
 
             if needs_dataset:
                 logger.info("Loading evaluation dataset...")
-                _, eval_dataset, _ = prepare_dataset(config, tokenizer=tokenizer)
+                _, eval_dataset, _ = prepare_dataset(config, tokenizer=tokenizer, device=device)
                 logger.info(f"Evaluation dataset: {len(eval_dataset)} sequences")
 
         # Run benchmarks

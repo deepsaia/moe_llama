@@ -12,7 +12,8 @@ BPE training and encoding.
 """
 
 import os
-import logging
+import tempfile
+from loguru import logger
 
 from tokenizers import Tokenizer
 from tokenizers.models import BPE
@@ -20,7 +21,6 @@ from tokenizers.trainers import BpeTrainer
 from tokenizers.pre_tokenizers import Whitespace
 from tokenizers.processors import TemplateProcessing
 
-logger = logging.getLogger(__name__)
 
 
 class BPETokenizer:
@@ -140,6 +140,10 @@ class BPETokenizer:
 
         logger.info(f"Training BPE tokenizer on {len(text)} characters")
 
+        # Initialize tokenizer if not already done
+        if self.tokenizer is None:
+            self.tokenizer = Tokenizer(BPE(unk_token="[UNK]"))
+
         # Pre-tokenizer: split on whitespace before BPE
         # This ensures BPE merges happen within words, not across them
         self.tokenizer.pre_tokenizer = Whitespace()
@@ -152,13 +156,19 @@ class BPETokenizer:
             show_progress=True
         )
 
-        # Save text to temporary file for training
-        # (HuggingFace tokenizers requires file input)
-        with open("temp_train.txt", "w", encoding="utf-8") as f:
+        # HuggingFace tokenizers requires file input
+        # Use a proper temporary file that gets auto-cleaned
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.txt') as f:
             f.write(text)
+            temp_path = f.name
 
-        # Train the tokenizer
-        self.tokenizer.train(files=["temp_train.txt"], trainer=trainer)
+        try:
+            # Train the tokenizer
+            self.tokenizer.train(files=[temp_path], trainer=trainer)
+        finally:
+            # Clean up temporary file
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
 
         # Configure post-processor
         # This automatically adds [EOS] token at the end of sequences

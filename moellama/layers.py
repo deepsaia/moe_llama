@@ -9,9 +9,8 @@ This module contains fundamental components used throughout the model:
 
 import torch
 import torch.nn as nn
-import logging
+from loguru import logger
 
-logger = logging.getLogger(__name__)
 
 
 class RotaryPositionalEmbeddings(nn.Module):

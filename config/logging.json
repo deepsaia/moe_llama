@@ -1,0 +1,36 @@
+{
+  "handlers": [
+    {
+      "sink": "sys.stderr",
+      "level": "INFO",
+      "format": "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+      "colorize": true,
+      "backtrace": true,
+      "diagnose": true
+    },
+    {
+      "sink": "logs/moellama_{time:YYYY-MM-DD}.log",
+      "level": "DEBUG",
+      "format": "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+      "rotation": "00:00",
+      "retention": "7 days",
+      "compression": "zip",
+      "colorize": false,
+      "backtrace": true,
+      "diagnose": true
+    }
+  ],
+  "levels": [
+    {"name": "TRACE", "color": "<dim>"},
+    {"name": "DEBUG", "color": "<blue>"},
+    {"name": "INFO", "color": "<green>"},
+    {"name": "SUCCESS", "color": "<bold><green>"},
+    {"name": "WARNING", "color": "<yellow>"},
+    {"name": "ERROR", "color": "<red>"},
+    {"name": "CRITICAL", "color": "<bold><red>"}
+  ],
+  "extra": {
+    "enable_intercept": true,
+    "intercept_standard_logging": true
+  }
+}

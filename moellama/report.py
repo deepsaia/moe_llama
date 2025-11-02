@@ -10,12 +10,11 @@ This module creates formatted markdown reports summarizing:
 Reports are config-driven and customizable.
 """
 
-import logging
+from loguru import logger
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Optional
 
-logger = logging.getLogger(__name__)
 
 
 class ReportGenerator:
