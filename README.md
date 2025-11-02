@@ -10,7 +10,7 @@ A clean, modular, educational implementation of the **Mixture of Experts (MoE)**
 
 ### Prerequisites
 - Python 3.10+
-- pip or conda
+- pip or conda (or uv for faster installs)
 - For GPU: CUDA-compatible NVIDIA GPU, or Apple Silicon for MPS, or just CPU
 
 ### Step-by-Step Setup
@@ -28,9 +28,20 @@ uv venv
 
 3. **Install dependencies**
 ```bash
+# Core dependencies (includes multi-dataset support)
 uv sync
 source .venv/bin/activate
+
+# Optional: PEFT for LoRA/QLoRA fine-tuning
+uv add --group peft peft bitsandbytes
 ```
+
+**What's included:**
+- Core training and inference
+- Multi-dataset mixing
+- Streaming for large datasets
+- Multi-stage training pipeline
+- Optional: PEFT/LoRA for efficient fine-tuning
 
 ---
 
@@ -38,7 +49,9 @@ source .venv/bin/activate
 
 ### Training a Model
 
-Train a new model from scratch:
+#### Single-Dataset Training (Classic)
+
+Train a new model from scratch on a single dataset:
 
 ```bash
 python -m scripts.train
@@ -47,7 +60,7 @@ python -m scripts.train
 With custom configuration:
 
 ```bash
-python -m scripts.train --config custom_config.hocon
+python -m scripts.train --config config/custom_config.hocon
 ```
 
 The training script will:
@@ -58,7 +71,103 @@ The training script will:
 5. Generate sample text to verify the model
 6. Create training history plots
 
-**Training logs** are saved to `logs/train.log`.
+**Training logs** are saved to `logs/moellama_YYYY-MM-DD.log` with:
+- Color-coded console output (INFO, WARNING, ERROR, DEBUG)
+- Daily rotation with 7-day retention and ZIP compression
+- Detailed tracebacks for debugging
+- Configuration in `config/logging.json`
+
+#### Multi-Dataset Training (NEW)
+
+Train on multiple datasets simultaneously with custom ratios:
+
+```bash
+# Simple multi-dataset with equal ratios
+python -m scripts.train --config config_multi_simple.hocon
+
+# Large-scale with streaming (100B+ tokens)
+python -m scripts.train --config config_multi_large.hocon
+```
+
+**Example config** (`config_multi_simple.hocon`):
+```hocon
+training {
+  dataset_mixture = [
+    {
+      name = "tiny_shakespeare"
+      ratio = 0.6              # 60% from Shakespeare
+    }
+    {
+      name = "Salesforce/wikitext"
+      subset = "wikitext-2-v1"
+      ratio = 0.4              # 40% from WikiText
+      percentage = 0.5         # Use only 50% of dataset
+    }
+  ]
+  batch_size = 16
+  epochs = 3
+}
+```
+
+**Features:**
+- Mix multiple datasets with custom ratios
+- Percentage sampling (use 10% of a 100B token dataset)
+- Streaming support for memory-efficient training on massive datasets
+- Domain filtering for datasets like FineFineWeb
+- 100% backward compatible with existing configs
+
+#### Multi-Stage Training Pipeline (NEW)
+
+Run complete training pipeline: Base → Midtraining → Fine-Tuning:
+
+```bash
+python -m scripts.train_multistage --config config_multistage.hocon
+```
+
+**Three-stage pipeline:**
+1. **Base Training** - Pretrain from scratch on large corpus
+2. **Midtraining** - Adapt to conversational/task-specific data
+3. **SFT (Supervised Fine-Tuning)** - Fine-tune with PEFT/LoRA
+
+**Example config** (`config_multistage.hocon`):
+```hocon
+training {
+  multi_stage = true
+
+  # Stage 1: Base pretraining
+  base_stage = {
+    enabled = true
+    dataset_mixture = [...]
+    epochs = 3
+    save_checkpoint = true
+  }
+
+  # Stage 2: Midtraining
+  mid_stage = {
+    enabled = true
+    load_checkpoint = "base_model"
+    learning_rate = 1e-4  # Lower LR
+  }
+
+  # Stage 3: Fine-tuning with LoRA
+  sft_stage = {
+    enabled = true
+    method = "lora"  # Options: "full", "lora", "qlora"
+    peft = {
+      lora_r = 8
+      lora_alpha = 16
+    }
+  }
+}
+```
+
+**Benefits:**
+- Efficient fine-tuning with LoRA/QLoRA
+- Automatic checkpoint management between stages
+- Flexible stage configuration (enable/disable stages)
+- Memory-efficient training with PEFT
+
+See the [Migration Guide](docs/migration_guide.md) for detailed upgrade instructions.
 
 ### Batch Inference
 
@@ -200,16 +309,31 @@ Hooray! the response looks as good as the model is and as good as the data it's 
 
 ## ✨ Key Features
 
+### Core Architecture
 - **Modular Architecture** - Clean separation of concerns with distinct modules
 - **Mixture of Experts** - Sparse expert activation for efficient scaling
 - **Rotary Positional Embeddings (RoPE)** - Better positional understanding
 - **RMS Normalization** - Stable training without mean centering
 - **Load Balancing** - Prevents expert collapse during training
 - **Shared Expert Option** - Ensures certain knowledge is always available
+
+### Training & Data (NEW)
+- **Multi-Dataset Mixing** - Train on multiple datasets simultaneously with custom ratios
+- **Streaming Support** - Memory-efficient training on 100B+ token datasets
+- **Percentage Sampling** - Use only a portion of large datasets (e.g., 10% of 100B tokens)
+- **Domain Filtering** - Select specific domains from datasets like FineFineWeb
+- **Multi-Stage Training** - Base → Midtraining → SFT pipeline with automatic checkpointing
+- **PEFT/LoRA Support** - Efficient fine-tuning with LoRA and QLoRA
+- **Backward Compatible** - Existing single-dataset configs work unchanged
+
+### Infrastructure
 - **Multi-Device Support** - Works on CPU, CUDA (NVIDIA), MPS (Apple Silicon)
+- **Enhanced Logging** - Loguru with color-coded console output and daily rotation
 - **Interactive Inference** - Real-time text generation with parameter tuning
-- **HOCON Configuration** - Easy, readable configuration files
+- **Web Chat UI** - Modern React-based interface with streaming
+- **Centralized Configuration** - HOCON config files organized in `config/` directory
 - **Comprehensive Documentation** - Detailed docstrings and inline comments
+- **Test Suite** - Automated tests for core functionality
 
 ## 📋 What is Mixture of Experts?
 
@@ -224,9 +348,31 @@ Unlike traditional transformers that route every token through the same feed-for
 
 ## 📁 Project Structure
 
+### Directory Structure:
+
+```
+├── config
+├── dataset
+├── docs
+│   └── assets
+├── logs
+├── model
+│   ├── report
+│   └── tensorboard
+├── moellama
+│   ├── benchmarks
+│   └── stages
+├── prebuilt_frontend
+│   └── dist
+│       └── assets
+├── scripts
+├── tests
+└── trained_models
+```
+
 ### Module Overview
 
-#### Core Components
+#### Core Model Components
 
 - **`model.py`** - The complete LLaMA4MoE model
   - Token embeddings
@@ -249,6 +395,8 @@ Unlike traditional transformers that route every token through the same feed-for
   - `RotaryPositionalEmbeddings`: RoPE implementation
   - `TransformerBlock`: Attention + MoE with residual connections
 
+#### Training Infrastructure
+
 - **`trainer.py`** - Training infrastructure
   - Mixed precision training (AMP)
   - Multi-GPU support (DataParallel)
@@ -258,17 +406,62 @@ Unlike traditional transformers that route every token through the same feed-for
 - **`dataset.py`** - Data utilities
   - `TextDataset`: Tokenized sequences
   - `prepare_dataset`: Download and prepare data
-  - Support for Tiny Shakespeare and HuggingFace datasets
+  - Support for single and multi-dataset modes
+  - Backward compatibility with classic configs
+
+- **`dataset_manager.py`** (NEW) - Multi-dataset orchestration
+  - `DatasetConfig`: Configuration dataclass for datasets
+  - `DatasetManager`: Load and mix multiple datasets
+  - Ratio-based mixing with HuggingFace interleave_datasets
+  - Percentage sampling and domain filtering
+  - Robust error handling and validation
+
+- **`streaming_dataloader.py`** (NEW) - Efficient streaming
+  - `StreamingDataLoader`: Token buffer for constant memory usage
+  - Handles 100B+ token datasets efficiently
+  - Compatible with HuggingFace IterableDataset
+  - DDP-aware for distributed training
 
 - **`tokenizer.py`** - BPE tokenization
   - Training BPE from text
   - Encoding/decoding
   - Special token handling
 
+#### Multi-Stage Training (NEW)
+
+- **`stages/base_train.py`** - Base pretraining stage
+  - Full model training from scratch
+  - Multi-dataset support
+  - Checkpoint saving
+
+- **`stages/mid_train.py`** - Midtraining stage
+  - Loads base model checkpoint
+  - Adapts to conversational/task data
+  - Lower learning rate
+
+- **`stages/sft_train.py`** - Supervised fine-tuning stage
+  - Full fine-tuning or PEFT/LoRA
+  - Very low learning rate
+  - Adapter merging support
+
+- **`stages/pipeline.py`** - Pipeline orchestration
+  - `MultiStageTrainingPipeline`: Orchestrates all stages
+  - Automatic checkpoint management
+  - Flexible stage enable/disable
+
+- **`peft_utils.py`** (NEW) - PEFT integration
+  - `PEFTManager`: Manages LoRA/QLoRA adapters
+  - `create_peft_manager`: Factory function
+  - Supports adapter merging and saving
+  - Graceful fallback if PEFT not installed
+
+#### Utilities & Evaluation
+
 - **`utils.py`** - Helper functions
   - Configuration loading (HOCON)
   - Device setup (CPU/CUDA/MPS)
   - Model inspection utilities
+  - Multi-dataset config logging
 
 - **`benchmarks.py`** - Evaluation suite
   - Perplexity and accuracy metrics
@@ -282,9 +475,18 @@ Unlike traditional transformers that route every token through the same feed-for
   - Benchmark visualization
   - Customizable sections
 
+#### Scripts
+
+- **`scripts/train.py`** - Single or multi-dataset training
+- **`scripts/train_multistage.py`** (NEW) - Multi-stage pipeline
+- **`scripts/inference.py`** - Batch text generation
+- **`scripts/interactive.py`** - Terminal chat interface
+- **`scripts/chat_server.py`** - Web chat server (FastAPI)
+- **`scripts/evaluate.py`** - Model evaluation and reporting
+
 ## ⚙️ Configuration
 
-Configuration is managed through `config.hocon` (Human-Optimized Config Object Notation):
+Configuration is managed through HOCON files in the `config/` directory (Human-Optimized Config Object Notation):
 
 ```hocon
 {
@@ -338,7 +540,9 @@ Configuration is managed through `config.hocon` (Human-Optimized Config Object N
 
 ## 📊 Working with Datasets
 
-### Default Dataset: Tiny Shakespeare
+### Single-Dataset Training (Classic)
+
+#### Default Dataset: Tiny Shakespeare
 
 The default configuration uses **Tiny Shakespeare** (~1MB), which automatically downloads to `dataset/`:
 
@@ -346,9 +550,9 @@ The default configuration uses **Tiny Shakespeare** (~1MB), which automatically 
 python -m scripts.train  # Downloads and caches to dataset/tiny_shakespeare/
 ```
 
-### Using HuggingFace Datasets
+#### Using HuggingFace Datasets
 
-Use any text dataset from HuggingFace by editing `config.hocon`:
+Use any text dataset from HuggingFace by editing `config/config.hocon`:
 
 ```hocon
 training {
@@ -365,6 +569,83 @@ training {
 - `bookcorpus` - 5GB, books
 - Browse more: https://huggingface.co/datasets?task_categories=text-generation
 
+### Multi-Dataset Training (NEW)
+
+Train on multiple datasets with custom ratios and advanced features.
+
+#### Configuration Formats
+
+**Format 1: Simple list (equal ratios)**
+```hocon
+training {
+  datasets = ["tiny_shakespeare", "wikitext"]  # 50/50 split
+}
+```
+
+**Format 2: Custom ratios with full control**
+```hocon
+training {
+  dataset_mixture = [
+    {
+      name = "tiny_shakespeare"
+      ratio = 0.6              # 60% from this dataset
+      split = "train"
+    }
+    {
+      name = "Salesforce/wikitext"
+      subset = "wikitext-2-v1" # Specific subset
+      ratio = 0.4              # 40% from this dataset
+      percentage = 0.5         # Use only 50% of dataset
+      streaming = false        # Map-style loading
+    }
+  ]
+  stopping_strategy = "all_exhausted"  # or "first_exhausted"
+}
+```
+
+#### Advanced Features
+
+**Percentage Sampling** - Use only a portion of large datasets:
+```hocon
+{
+  name = "karpathy/fineweb-edu-100b-shuffle"
+  percentage = 0.10          # Use 10% = 10B tokens
+}
+```
+
+**Streaming for Large Datasets** - Memory-efficient loading:
+```hocon
+{
+  name = "karpathy/fineweb-edu-100b-shuffle"
+  streaming = true           # Constant memory usage
+  percentage = 0.10
+}
+```
+
+**Domain Filtering** - Select specific domains:
+```hocon
+{
+  name = "m-a-p/FineFineWeb"
+  domains = ["aerospace", "biology", "mathematics"]
+  streaming = true
+}
+```
+
+#### Popular Large-Scale Datasets
+
+- **FineWeb-Edu** (100B+ tokens) - High-quality educational web text
+  - `karpathy/fineweb-edu-100b-shuffle` - Shuffled version
+- **FineFineWeb** - Domain-specific filtered web text
+  - `m-a-p/FineFineWeb` - Supports domain filtering
+- **The Pile** - Diverse training corpus (800GB)
+  - Various subsets available
+- **C4** - Colossal Clean Crawled Corpus
+  - `allenai/c4` - 300GB+ of clean web text
+- **RedPajama** - Open reproduction of LLaMA training data
+  - `togethercomputer/RedPajama-Data-1T` - 1T tokens
+
+**Tip**: Always use `streaming = true` for datasets over 10GB to avoid memory issues.
+
 ### Using Custom Datasets
 
 **Quick Start** - Place your text files in `dataset/`:
@@ -374,12 +655,27 @@ mkdir -p dataset/my_data
 echo "Your training text..." > dataset/my_data/data.txt
 ```
 
-Then modify `config.hocon`:
+Then use in multi-dataset config:
 ```hocon
 training {
-  dataset = "my_data"  # Add custom loader in dataset.py
+  dataset_mixture = [
+    {
+      name = "local"
+      path = "./dataset/my_data/data.txt"
+      ratio = 0.3
+      format = "text"  # or "jsonl"
+    }
+    {
+      name = "tiny_shakespeare"
+      ratio = 0.7
+    }
+  ]
 }
 ```
+
+**Supported formats:**
+- `.txt` - Plain text files
+- `.jsonl` - JSON lines with "text" field
 
 **Complete Guide**: See [DATASETS.md](DATASETS.md) for:
 - Loading custom text files
@@ -394,6 +690,7 @@ training {
 dataset/                    # All datasets (gitignored)
 ├── tiny_shakespeare/       # Default dataset
 ├── wikitext/              # HuggingFace datasets
+├── fineweb-edu/           # Large streaming datasets (cached)
 └── my_custom_data/        # Your custom data
 ```
 
@@ -418,25 +715,34 @@ python -m scripts.evaluate --output my_report.md
 
 ### Available Benchmarks
 
-The evaluation suite includes:
+The evaluation suite includes comprehensive standard LLM benchmarks:
 
-**Implemented Benchmarks:**
-- **Perplexity** - How well the model predicts next tokens (lower is better)
-- **Token Accuracy** - Percentage of correct predictions
-- **Generation Quality** - Sample text generation with custom prompts
-- **Counting Ability** - Letter counting tasks (e.g., "How many 'r's in 'strawberry'?")
-- **Simple Math** - Basic arithmetic (single-digit addition/subtraction)
+**Standard LLM Benchmarks (Implemented):**
+- **ARC-Easy** - AI2 Reasoning Challenge (Easy questions)
+- **ARC-Challenge** - AI2 Reasoning Challenge (Challenge questions)
+- **MMLU** - Massive Multitask Language Understanding (57 subjects)
+- **GSM8K** - Grade School Math reasoning
+- **HellaSwag** - Commonsense reasoning via scenario completion
+- **WinoGrande** - Pronoun resolution / coreference
 
-**Future Benchmarks** (placeholders for implementation):
-- ARC-Easy & ARC-Challenge - AI2 Reasoning Challenge
-- MMLU - Massive Multitask Language Understanding
-- GSM8K - Grade School Math problems
-- HumanEval - Code generation evaluation
-- ChatCORE - Chat-oriented reasoning
+**Training-Time Benchmarks:**
+- Quick evaluation at end of each epoch (100 samples per benchmark)
+- Final comprehensive evaluation with all samples at end of training
+- Results logged to TensorBoard and WandB (optional)
+- Benchmark reports saved to `report/bm_report_<modelname>_<datetime>.md`
+
+**Standalone Benchmark Runner:**
+```bash
+# Full evaluation
+python -m scripts.run_benchmarks --model-path ./model/model_*.pt
+
+# Quick evaluation (100 samples)
+python -m scripts.run_benchmarks --model-path ./model/model_*.pt --quick
+```
 
 ### Configuration
 
-Control evaluation via `config.hocon`:
+Control evaluation via `config/config.hocon`:
 
 ```hocon
 evaluation {
@@ -570,7 +876,7 @@ Multi-head attention with:
 
 ### Training Flow
 
-1. **Configuration** - Load from `config.hocon`
+1. **Configuration** - Load from `config/config.hocon`
 2. **Device Setup** - Detect and configure compute device
 3. **Data Preparation** - Download, tokenize, create datasets
 4. **Model Creation** - Initialize LLaMA4MoE with config parameters
@@ -607,7 +913,7 @@ size mismatch for token_embeddings.weight
 ```
 RuntimeError: CUDA out of memory
 ```
-**Solution**: Reduce `batch_size` in config.hocon
+**Solution**: Reduce `batch_size` in `config/config.hocon`
 
 **Import Errors**
 ```
@@ -620,6 +926,85 @@ ModuleNotFoundError: No module named 'moellama'
 - Set `num_cpu_threads = -1` in config to use more cores
 - Consider using a GPU or reducing model size
 
+### Multi-Dataset Issues (NEW)
+
+**"No configuration setting found for key dataset"**
+```
+pyhocon.exceptions.ConfigMissingException: No configuration setting found for key dataset
+```
+**Solution**: This error was fixed in the latest version. Update your code or ensure you're using `dataset_mixture` or `datasets` instead of `dataset` in multi-dataset mode.
+
+**"datasets library not found"**
+```
+ImportError: HuggingFace datasets library not found
+```
+**Solution**: Install the datasets library:
+```bash
+pip install datasets
+# or
+uv add datasets
+```
+
+**Out of Memory with Large Datasets**
+**Solution**: Enable streaming mode:
+```hocon
+{
+  name = "large-dataset"
+  streaming = true      # Add this!
+  percentage = 0.1      # Use smaller percentage
+}
+```
+
+**Dataset Loading Fails**
+```
+Failed to load dataset 'dataset_name'
+```
+**Solution**: Check:
+1. Dataset name is correct (check HuggingFace hub)
+2. Network connection is working
+3. Dataset is publicly available
+4. If using local dataset, path exists
+
+**Ratios Don't Sum to 1.0**
+**Solution**: Don't worry! Ratios are automatically normalized. This is perfectly fine:
+```hocon
+dataset_mixture = [
+  { name = "ds1", ratio = 3 }  # Will become 3/5 = 0.6
+  { name = "ds2", ratio = 2 }  # Will become 2/5 = 0.4
+]
+```
+
+### Multi-Stage Issues (NEW)
+
+**"PEFT library not found"**
+```
+ImportError: PEFT library not found
+```
+**Solution**: Install PEFT (only needed for LoRA):
+```bash
+pip install peft bitsandbytes
+# or
+uv add --group peft peft bitsandbytes
+```
+
+**Checkpoint Not Found in Multi-Stage**
+```
+FileNotFoundError: Checkpoint 'base_model' not found
+```
+**Solution**: Ensure previous stage ran successfully and saved checkpoint:
+```hocon
+base_stage = {
+  enabled = true
+  save_checkpoint = true
+  checkpoint_name = "base_model"
+}
+
+mid_stage = {
+  enabled = true
+  load_checkpoint = "base_model"  # Must match checkpoint_name above
+}
+```
+
 ### Performance Tips
 
 - **GPU**: Use CUDA for 10-100x speedup
@@ -627,6 +1012,8 @@ ModuleNotFoundError: No module named 'moellama'
 - **Batch Size**: Increase if you have memory
 - **Multi-GPU**: Set `use_data_parallel = true` and `gpu_ids = [0, 1, ...]`
 - **CPU Threads**: Set `num_cpu_threads = -1` to use all but 2 cores
+- **Large Datasets**: Always use `streaming = true` for datasets over 10GB
+- **Memory Optimization**: Use LoRA instead of full fine-tuning to save memory
 
 ## 📈 Example Results
 
@@ -642,6 +1029,42 @@ The slings and arrows of outrageous fortune...
 Stats: 45 tokens, 8.2 tokens/sec
 ```
 
+## 📚 Documentation
+
+### Core Documentation
+
+- **[README.md](README.md)** (this file) - Overview, installation, usage
+- **[DATASETS.md](DATASETS.md)** - Working with datasets (single and multi-dataset)
+- **[Migration Guide](docs/migration_guide.md)** - Upgrade guide from single to multi-dataset training
+
+### Technical Documentation (NEW)
+
+- **[Dataset Pipeline Design](docs/dataset_pipeline_design.md)** - Complete technical design of multi-dataset system
+  - Architecture overview
+  - Streaming vs map-style datasets
+  - Multi-stage training design
+  - PEFT integration design
+
+- **[Implementation Progress](docs/implementation_progress.md)** - Development tracking
+  - Feature completion status
+  - Testing progress
+  - Known issues and TODOs
+
+### Example Configurations (NEW)
+
+- **`config/config.hocon`** - Default single-dataset configuration
+- **`config/config_multi_simple.hocon`** - Simple multi-dataset with custom ratios
+- **`config/config_multi_large.hocon`** - Large-scale streaming (100B+ tokens)
+- **`config/config_multistage.hocon`** - Complete multi-stage pipeline with LoRA
+- **`config/logging.json`** - Loguru logging configuration
+
+### Quick Start Guides
+
+1. **Beginner**: Use default config → `python -m scripts.train`
+2. **Intermediate**: Try multi-dataset → `python -m scripts.train --config config_multi_simple.hocon`
+3. **Advanced**: Large-scale streaming → Use `config_multi_large.hocon` with your datasets
+4. **Expert**: Multi-stage pipeline → `python -m scripts.train_multistage --config config_multistage.hocon`
+
 ## 🤝 Contributing
 
 Contributions are welcome! This project focuses on:
@@ -649,6 +1072,13 @@ Contributions are welcome! This project focuses on:
 - **Modularity** - Components should be independent
 - **Documentation** - Every function should have clear docstrings
 - **Educational Value** - Prioritize learning over performance
+
+**Areas for Contribution:**
+- Additional benchmarks and evaluation metrics
+- Support for more dataset formats
+- Documentation improvements
+- Performance optimizations
+- Bug fixes and testing
 
 ## 📚 References
 
@@ -658,15 +1088,17 @@ Contributions are welcome! This project focuses on:
 - [Switch Transformers](https://arxiv.org/abs/2101.03961) - Sparse MoE at scale
 - [GShard](https://arxiv.org/abs/2006.16668) - Scaling with MoE
 - [LLaMA](https://arxiv.org/abs/2302.13971) - Efficient large language models
+- [nanochat](https://github.com/karpathy/nanochat) - Karpathy's full-stack implementation of an LLM like ChatGPT
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
-- Built for educational purposes to understand MoE architectures
+- Built for educational purposes to understand LLM architectures
 - Thanks to the PyTorch and HuggingFace communities
+- Multi-dataset and streaming design inspired by production-grade training pipelines
 
 ---
 

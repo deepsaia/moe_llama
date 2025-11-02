@@ -12,7 +12,8 @@ Usage:
 """
 
 import argparse
-import logging
+from loguru import logger
+from moellama.logging_setup import setup_logging
 import time
 import sys
 from pathlib import Path
@@ -24,11 +25,7 @@ from torch.cuda.amp import autocast
 from moellama import LLaMA4MoE, BPETokenizer, load_config, setup_device
 
 # Configure logging
-logging.basicConfig(
-    level=logging.WARNING,  # Less verbose for interactive use
-    format='%(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+setup_logging()
 
 
 def find_latest_file(directory, pattern):
@@ -215,7 +212,7 @@ def main():
     parser.add_argument(
         "--config",
         type=str,
-        default="config.hocon",
+        default="config/config.hocon",
         help="Path to configuration file"
     )
     parser.add_argument(

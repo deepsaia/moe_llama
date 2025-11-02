@@ -15,7 +15,8 @@ Usage:
 """
 
 import argparse
-import logging
+from loguru import logger
+from moellama.logging_setup import setup_logging
 import os
 import random
 
@@ -36,15 +37,7 @@ from moellama.utils import log_model_info, set_seed
 os.makedirs("logs", exist_ok=True)
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("logs/train.log"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+setup_logging()
 
 
 def main():
@@ -56,7 +49,7 @@ def main():
     parser.add_argument(
         "--config",
         type=str,
-        default="config.hocon",
+        default="config/config.hocon",
         help="Path to configuration file (default: config.hocon)"
     )
     parser.add_argument(
@@ -75,6 +68,9 @@ def main():
         # Set random seed for reproducibility
         set_seed(args.seed)
 
+        # DDP rank (0 for single-device training)
+        ddp_rank = 0
+
         # Load configuration
         config = load_config(args.config)
 
@@ -83,7 +79,7 @@ def main():
 
         # Prepare dataset
         logger.info("Preparing dataset...")
-        train_dataset, eval_dataset, tokenizer = prepare_dataset(config)
+        train_dataset, eval_dataset, tokenizer = prepare_dataset(config, device=device)
 
         # Update vocabulary size in config
         vocab_size = len(tokenizer)
@@ -115,20 +111,13 @@ def main():
             weight_decay=0.01
         )
 
-        # Configure multi-GPU training if requested
-        device_config = config.get('device', {})
-        use_data_parallel = device_config.get('use_data_parallel', False)
-        gpu_ids = device_config.get('gpu_ids', [0])
-
         # Create trainer
         trainer = LLaMA4Trainer(
             model=model,
             tokenizer=tokenizer,
             optimizer=optimizer,
             device=device,
-            use_data_parallel=use_data_parallel,
-            gpu_ids=gpu_ids,
-            config=config
+            config=config,
         )
 
         # Train model
@@ -142,37 +131,45 @@ def main():
             epochs=config["training"]["epochs"],
             eval_steps=config["training"]["eval_steps"],
             output_dir=config["paths"]["output_dir"],
-            num_workers=config["training"].get("num_workers", 4)
+            num_workers=config["training"].get("num_workers", 4),
+            max_eval_batches=config["training"].get("max_eval_batches", None),
+            run_benchmarks=config["training"].get("run_benchmarks", True),
+            benchmark_samples=config["training"].get("benchmark_samples", 100)
         )
 
-        # Generate training history plot
-        logger.info("Generating training history plot...")
-        trainer.plot_training_history(config["paths"]["output_dir"])
+        # Generate training history plot (master process only)
+        if ddp_rank == 0:
+            logger.info("Generating training history plot...")
+            trainer.plot_training_history(config["paths"]["output_dir"])
 
-        # Generate sample text to verify the model works
-        logger.info("\n" + "="*60)
-        logger.info("Generating sample text...")
-        logger.info("="*60)
+        # Generate sample text to verify the model works (master process only)
+        if ddp_rank == 0:
+            logger.info("\n" + "="*60)
+            logger.info("Generating sample text...")
+            logger.info("="*60)
 
-        prompt = "To be or not to be"
-        input_ids = torch.tensor(
-            tokenizer.encode(prompt),
-            dtype=torch.long
-        ).unsqueeze(0).to(device)
+            prompt = "To be or not to be"
+            input_ids = torch.tensor(
+                tokenizer.encode(prompt),
+                dtype=torch.long
+            ).unsqueeze(0).to(device)
 
-        generated_ids = model.generate(
-            input_ids,
-            max_new_tokens=100,
-            temperature=0.8,
-            top_k=50,
-            top_p=0.95
-        )
+            # Use model for generation
+            trainer.model.eval()
 
-        generated_text = tokenizer.decode(generated_ids[0].tolist())
-        logger.info(f"\nPrompt: {prompt}")
-        logger.info(f"Generated: {generated_text[len(prompt):]}")
+            generated_ids = trainer.model.generate(
+                input_ids,
+                max_new_tokens=100,
+                temperature=0.8,
+                top_k=50,
+                top_p=0.95
+            )
 
-        # Save final model
+            generated_text = tokenizer.decode(generated_ids[0].tolist())
+            logger.info(f"\nPrompt: {prompt}")
+            logger.info(f"Generated: {generated_text[len(prompt):]}")
+
+        # Save final model (master process only, handled in save_model)
         logger.info("\n" + "="*60)
         logger.info("Saving final model...")
         trainer.save_model(config["paths"]["model_path"])

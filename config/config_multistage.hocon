@@ -1,0 +1,260 @@
+{
+  # Multi-Stage Training Configuration
+  # Complete pipeline: Base Training → Midtraining → Fine-Tuning (SFT)
+
+  # Model architecture (shared across all stages)
+  model {
+    name = "moellama_multistage"  # Model name (used in reports and checkpoints)
+    vocab_size = 10000
+    dim = 384
+    num_layers = 6
+    num_heads = 12
+    num_experts = 12
+    top_k = 2
+    max_seq_len = 512
+    dropout = 0.1
+    shared_expert = true
+    load_balancing_loss_coef = 0.01
+  }
+
+  # Device configuration
+  # IMPORTANT: CPUs are 100-200x slower than GPUs for training!
+  # - Apple Silicon: Set type="mps" for 10-20x speedup over CPU
+  # - NVIDIA GPU: Set type="cuda" for 100-200x speedup over CPU
+  # - Intel/AMD CPU: Consider cloud GPU (AWS, GCP, Lambda Labs)
+  device {
+    type = "auto"  # "auto" (recommended), "cpu", "cuda", "mps"
+    # CPU optimization (only matters if using CPU)
+    num_cpu_threads = -1  # -1 = use all cores (recommended), or specify number
+    num_cpu_interop_threads = 2  # Inter-op parallelism (2 is optimal)
+    # GPU configuration
+    gpu_ids = [0]  # GPU IDs for multi-GPU (use with torchrun)
+    use_mps = true  # Enable MPS on Apple Silicon (10-20x faster than CPU)
+  }
+
+  # Multi-stage training enabled
+  training {
+    multi_stage = true
+
+    # -------------------------------------------------------------------------
+    # Stage 1: Base Training (Pretraining)
+    # -------------------------------------------------------------------------
+    base_stage = {
+      enabled = true
+
+      # Pretraining datasets - mix of general text
+      dataset_mixture = [
+        {
+          name = "karpathy/fineweb-edu-100b-shuffle"
+          ratio = 0.50
+          streaming = true
+          percentage = 0.15  # 15B tokens
+        }
+        {
+          name = "Salesforce/wikitext"
+          subset = "wikitext-103-v1"
+          ratio = 0.30
+          streaming = false
+          percentage = 0.80
+        }
+        {
+          name = "m-a-p/FineFineWeb"
+          ratio = 0.20
+          streaming = true
+          percentage = 0.05
+          domains = ["science", "mathematics", "technology"]
+        }
+      ]
+
+      # Training hyperparameters
+      batch_size = 32
+      learning_rate = 3e-4
+      epochs = 3
+      eval_steps = 0
+      seq_len = 512
+
+      # Save checkpoint after base training
+      save_checkpoint = true
+      checkpoint_name = "base_model"
+    }
+
+    # -------------------------------------------------------------------------
+    # Stage 2: Midtraining (Optional)
+    # -------------------------------------------------------------------------
+    mid_stage = {
+      enabled = true
+
+      # Load from base stage
+      load_checkpoint = "base_model"
+
+      # Midtraining datasets - conversations and task-specific data
+      dataset_mixture = [
+        {
+          name = "HuggingFaceTB/smol-smoltalk"
+          ratio = 0.60         # 60% general conversations
+          split = "train"
+          streaming = false
+          percentage = 0.50    # Use 50% of smoltalk
+        }
+        {
+          name = "local"
+          path = "./dataset/custom_conversations.jsonl"
+          ratio = 0.20         # 20% custom identity data
+          format = "conversation"
+        }
+        {
+          name = "openai/gsm8k"
+          subset = "main"
+          ratio = 0.10         # 10% math reasoning
+          split = "train"
+        }
+        {
+          name = "cais/mmlu"
+          ratio = 0.10         # 10% multiple choice QA
+          split = "train"
+          percentage = 0.30    # Sample 30%
+        }
+      ]
+
+      # Midtraining hyperparameters (lower LR)
+      batch_size = 16
+      learning_rate = 1e-4     # Lower LR for adaptation
+      epochs = 1               # Single pass
+      eval_steps = 200
+      seq_len = 512
+
+      # Save checkpoint after midtraining
+      save_checkpoint = true
+      checkpoint_name = "mid_model"
+    }
+
+    # -------------------------------------------------------------------------
+    # Stage 3: Supervised Fine-Tuning (SFT)
+    # -------------------------------------------------------------------------
+    sft_stage = {
+      enabled = true
+
+      # Load from midtraining stage
+      load_checkpoint = "mid_model"
+
+      # Fine-tuning method
+      method = "lora"          # Options: "full", "lora", "qlora"
+
+      # PEFT/LoRA configuration (if method != "full")
+      peft = {
+        lora_r = 8             # LoRA rank
+        lora_alpha = 16        # LoRA alpha (scaling)
+        lora_dropout = 0.1     # Dropout for LoRA layers
+        target_modules = [     # Which modules to apply LoRA
+          "q_proj"             # Query projection in attention
+          "v_proj"             # Value projection in attention
+          "k_proj"             # Key projection
+          "o_proj"             # Output projection
+        ]
+        bias = "none"          # Options: "none", "all", "lora_only"
+        task_type = "CAUSAL_LM"
+      }
+
+      # Fine-tuning datasets - high-quality, task-specific
+      dataset_mixture = [
+        {
+          name = "OpenAssistant/oasst1"
+          ratio = 0.50         # 50% instruction-following
+          split = "train"
+        }
+        {
+          name = "tatsu-lab/alpaca"
+          ratio = 0.30         # 30% instruction tuning
+          split = "train"
+          percentage = 0.80
+        }
+        {
+          name = "local"
+          path = "./dataset/domain_specific.jsonl"
+          ratio = 0.20         # 20% domain-specific data
+          format = "conversation"
+        }
+      ]
+
+      # Fine-tuning hyperparameters (very low LR)
+      batch_size = 8           # Smaller batches for SFT
+      learning_rate = 5e-5     # Very low LR
+      epochs = 1               # Single pass
+      eval_steps = 100
+      seq_len = 512
+
+      # Save final model
+      save_checkpoint = true
+      checkpoint_name = "sft_model"
+    }
+
+    # -------------------------------------------------------------------------
+    # Shared training settings
+    # -------------------------------------------------------------------------
+    data_dir = "dataset"
+    num_workers = 4
+    stopping_strategy = "all_exhausted"
+    eval_percentage = 0.1    # Percentage of each dataset to use for eval (0.1 = 10%)
+    max_eval_batches = 100  # Limit eval batches for streaming
+
+    # Benchmark settings during training
+    run_benchmarks = true  # Run benchmarks at end of each epoch
+    benchmark_samples = 100  # Samples per benchmark during training
+
+    # Logging configuration
+    use_wandb = false
+    wandb_project = "moellama-multistage"
+    wandb_run_name = null
+  }
+
+  # Inference configuration (for final model)
+  inference {
+    max_new_tokens = 300
+    temperature = 0.7
+    top_k = 40
+    top_p = 0.95
+  }
+
+  # Paths configuration
+  paths {
+    model_path = "./trained_models/multistage"
+    output_dir = "./model/multistage"
+  }
+
+  # Benchmarks configuration (for standalone benchmark runner)
+  benchmarks {
+    enabled_benchmarks = [
+      "ARC-Easy",
+      "ARC-Challenge",
+      "MMLU",
+      "GSM8K",
+      "HellaSwag",
+      "WinoGrande"
+    ]
+    max_samples = null  # Use all samples for comprehensive evaluation
+    max_new_tokens = 256
+    temperature = 0.0
+    output_dir = "./report"
+  }
+
+  # Evaluation configuration
+  evaluation {
+    enabled = true
+    enabled_benchmarks = [
+      "perplexity",
+      "accuracy",
+      "generation",
+      "counting",
+      "simple_math"
+    ]
+    batch_size = 16
+    test_prompts = [
+      "Explain quantum entanglement in simple terms",
+      "Write a Python function to calculate fibonacci numbers",
+      "What are the main causes of climate change?"
+    ]
+    generation_max_tokens = 150
+    generation_temperature = 0.7
+    report_path = "report_multistage.md"
+  }
+}

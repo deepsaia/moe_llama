@@ -1,0 +1,94 @@
+{
+  # Tiny Multi-Dataset Configuration (Non-Streaming)
+  # For quick testing with very small datasets
+  # Uses non-streaming mode with single text example
+
+  model {
+    name = "moellama_tiny"  # Model name (used in reports and checkpoints)
+    vocab_size = 10000
+    dim = 256
+    num_layers = 4
+    num_heads = 8
+    num_experts = 8
+    top_k = 2
+    max_seq_len = 256
+    dropout = 0.1
+    shared_expert = true
+    load_balancing_loss_coef = 0.01
+  }
+
+  device {
+    type = "auto"
+    num_cpu_threads = -1
+    num_cpu_interop_threads = 2
+    gpu_ids = [0]
+    use_mps = false
+  }
+
+  training {
+    # Single dataset for fastest testing
+    # tiny_shakespeare has only 1 text example, so tokenization is instant
+    dataset = "tiny_shakespeare"
+
+    # Alternative: minimal multi-dataset (fast non-streaming)
+    # dataset_mixture = [
+    #   { name = "tiny_shakespeare", ratio = 1.0 }
+    # ]
+
+    batch_size = 16
+    learning_rate = 3e-4
+    epochs = 1                 # Single epoch for quick test
+    eval_steps = 50
+    eval_percentage = 0.1      # Percentage of each dataset to use for eval (0.1 = 10%)
+    max_eval_batches = 50      # Limit eval batches
+    seq_len = 256
+    data_dir = "dataset"
+    num_workers = 4
+
+    # Benchmark settings during training
+    run_benchmarks = false  # Disabled for quick testing
+    benchmark_samples = 50  # Fewer samples for tiny config
+
+    # Logging configuration
+    use_wandb = false
+    wandb_project = "moellama-training"
+    wandb_run_name = null
+  }
+
+  inference {
+    max_new_tokens = 100
+    temperature = 0.8
+    top_k = 50
+    top_p = 0.95
+  }
+
+  paths {
+    model_path = "./trained_models"
+    output_dir = "./model"
+  }
+
+  # Benchmarks configuration (for standalone benchmark runner)
+  benchmarks {
+    enabled_benchmarks = [
+      "ARC-Easy",
+      "ARC-Challenge",
+      "MMLU",
+      "GSM8K",
+      "HellaSwag",
+      "WinoGrande"
+    ]
+    max_samples = 50  # Limited for tiny config
+    max_new_tokens = 256
+    temperature = 0.0
+    output_dir = "./report"
+  }
+
+  evaluation {
+    enabled = true
+    enabled_benchmarks = ["perplexity", "generation"]
+    batch_size = 16
+    test_prompts = ["Once upon"]
+    generation_max_tokens = 30
+    report_path = "report.md"
+  }
+}

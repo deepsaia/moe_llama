@@ -8,12 +8,11 @@ This module provides helper functions for:
 """
 
 import os
-import logging
+from loguru import logger
 
 import torch
 from pyhocon import ConfigFactory
 
-logger = logging.getLogger(__name__)
 
 
 def load_config(config_path="config.hocon"):
@@ -70,7 +69,23 @@ def load_config(config_path="config.hocon"):
         logger.info(f"  batch_size: {config['training']['batch_size']}")
         logger.info(f"  learning_rate: {config['training']['learning_rate']}")
         logger.info(f"  epochs: {config['training']['epochs']}")
-        logger.info(f"  dataset: {config['training']['dataset']}")
+
+        # Handle different dataset config formats
+        training_config = config['training']
+        if 'dataset_mixture' in training_config:
+            num_datasets = len(training_config['dataset_mixture'])
+            logger.info(f"  dataset: Multi-dataset mode ({num_datasets} datasets)")
+            for i, ds in enumerate(training_config['dataset_mixture'], 1):
+                logger.info(f"    {i}. {ds.get('name', 'unknown')} (ratio: {ds.get('ratio', 1.0)})")
+        elif 'datasets' in training_config:
+            datasets = training_config['datasets']
+            logger.info(f"  dataset: Multi-dataset mode ({len(datasets)} datasets, equal ratios)")
+            for ds_name in datasets:
+                logger.info(f"    - {ds_name}")
+        elif 'dataset' in training_config:
+            logger.info(f"  dataset: {training_config['dataset']}")
+        else:
+            logger.warning("  dataset: No dataset configuration found (will need to be specified)")
 
         return config
 
@@ -81,17 +96,25 @@ def load_config(config_path="config.hocon"):
 
 def setup_device(config):
     """
-    Configure compute device based on configuration.
+    Configure compute device based on configuration with robust validation.
 
     This function:
     1. Sets CPU thread configuration for optimal performance
-    2. Detects available devices (CUDA, MPS, CPU)
-    3. Selects the appropriate device based on config and availability
+    2. Validates user's preferred device from config
+    3. Falls back gracefully if preferred device is unavailable
+    4. Returns a validated PyTorch device object
 
     Device selection priority (when type='auto'):
     1. MPS (Apple Silicon) if available and use_mps=true
     2. CUDA (NVIDIA GPU) if available
     3. CPU as fallback
+
+    Supported device types:
+    - 'auto': Auto-detect best available device
+    - 'cpu': Force CPU
+    - 'cuda': Use default CUDA device (cuda:0)
+    - 'cuda:N': Use specific CUDA device N
+    - 'mps': Use Apple MPS
 
     CPU Thread Configuration:
         - num_cpu_threads: Intra-op parallelism (within operations)
@@ -103,15 +126,16 @@ def setup_device(config):
         config: Configuration object with 'device' section
 
     Returns:
-        PyTorch device object
+        PyTorch device object (validated and safe to use)
     """
     device_config = config.get('device', {})
 
-    # Configure CPU threads
-    num_threads = device_config.get('num_cpu_threads', 4)
+    # Configure CPU threads for optimal performance
+    num_threads = device_config.get('num_cpu_threads', -1)
     if num_threads == -1:
-        # Use all but 2 cores to keep system responsive
-        num_threads = os.cpu_count() - 2
+        # Use all available cores for maximum performance
+        # Note: On shared systems, consider leaving 1-2 cores free
+        num_threads = os.cpu_count()
 
     num_interop_threads = device_config.get('num_cpu_interop_threads', 2)
 
@@ -122,37 +146,123 @@ def setup_device(config):
     torch.set_num_threads(num_threads)
     torch.set_num_interop_threads(num_interop_threads)
 
-    # Determine device type
+    # Enable MKL-DNN (oneDNN) optimizations if available
+    if hasattr(torch.backends, 'mkldnn') and torch.backends.mkldnn.is_available():
+        # MKL-DNN optimizes operations for Intel CPUs
+        logger.info("✓ MKL-DNN (oneDNN) optimizations enabled")
+
+    # For ARM (Apple Silicon), recommend using MPS instead of CPU
+    if 'arm' in os.uname().machine.lower() and torch.backends.mps.is_available():
+        logger.warning(
+            "⚠ Running on Apple Silicon (ARM) with CPU device. "
+            "For 10-20x speedup, set device.type='mps' in config."
+        )
+
+    # Get user's device preference
     device_type = device_config.get('type', 'auto')
     use_mps = device_config.get('use_mps', True)
 
-    # Check for MPS (Apple Silicon)
-    if device_type == 'auto' and use_mps:
-        if hasattr(torch, 'mps') and torch.mps.is_available():
+    logger.info(f"Device preference from config: '{device_type}'")
+
+    # AUTO MODE: Select best available device
+    if device_type == 'auto':
+        # Priority 1: MPS (if enabled)
+        if use_mps and hasattr(torch, 'mps') and torch.mps.is_available():
             device = torch.device('mps')
-            logger.info("Using Apple MPS (Metal Performance Shaders)")
+            logger.info("✓ Auto-selected: Apple MPS (Metal Performance Shaders)")
             return device
 
-    # Check for CUDA (NVIDIA GPU)
-    if device_type == 'auto' or device_type == 'cuda':
+        # Priority 2: CUDA
         if torch.cuda.is_available():
-            device = torch.device('cuda')
+            device = torch.device('cuda:0')
             gpu_name = torch.cuda.get_device_name(0)
-            logger.info(f"Using CUDA device: {gpu_name}")
+            logger.info(f"✓ Auto-selected: CUDA device 0 ({gpu_name})")
             return device
 
-    # Explicit device types
-    if device_type == 'mps':
+        # Priority 3: CPU fallback
+        device = torch.device('cpu')
+        logger.info("✓ Auto-selected: CPU (no GPU available)")
+        return device
+
+    # EXPLICIT DEVICE: Validate user's choice
+    device_type_lower = device_type.lower()
+
+    # CPU: Always available
+    if device_type_lower == 'cpu':
+        device = torch.device('cpu')
+        logger.info("✓ Using CPU (as requested)")
+        return device
+
+    # MPS: Apple Silicon GPU
+    if device_type_lower == 'mps':
         if hasattr(torch, 'mps') and torch.mps.is_available():
             device = torch.device('mps')
-            logger.info("Using Apple MPS (Metal Performance Shaders)")
+            logger.info("✓ Using Apple MPS (as requested)")
             return device
         else:
-            logger.warning("MPS not available, falling back to CPU")
+            logger.warning(
+                "⚠ MPS requested but not available. "
+                "Possible reasons: Not on Apple Silicon, PyTorch too old, or MPS not enabled."
+            )
+            logger.warning("→ Falling back to CPU")
+            device = torch.device('cpu')
+            return device
 
-    # Fallback to CPU
+    # CUDA: NVIDIA GPU
+    if device_type_lower.startswith('cuda'):
+        if not torch.cuda.is_available():
+            logger.warning(
+                "⚠ CUDA requested but not available. "
+                "Possible reasons: No NVIDIA GPU, missing drivers, or PyTorch CPU-only build."
+            )
+            logger.warning("→ Falling back to CPU")
+            device = torch.device('cpu')
+            return device
+
+        # Parse device ID if specified (e.g., 'cuda:1')
+        if ':' in device_type_lower:
+            try:
+                device_id = int(device_type_lower.split(':')[1])
+                num_gpus = torch.cuda.device_count()
+
+                if device_id >= num_gpus:
+                    logger.warning(
+                        f"⚠ CUDA device {device_id} requested but only {num_gpus} GPU(s) available "
+                        f"(valid IDs: 0-{num_gpus-1})"
+                    )
+                    logger.warning(f"→ Falling back to cuda:0")
+                    device = torch.device('cuda:0')
+                    gpu_name = torch.cuda.get_device_name(0)
+                    logger.info(f"✓ Using CUDA device 0 ({gpu_name})")
+                    return device
+                else:
+                    device = torch.device(f'cuda:{device_id}')
+                    gpu_name = torch.cuda.get_device_name(device_id)
+                    logger.info(f"✓ Using CUDA device {device_id} ({gpu_name})")
+                    return device
+
+            except (ValueError, IndexError) as e:
+                logger.warning(f"⚠ Invalid CUDA device format: '{device_type}' ({e})")
+                logger.warning("→ Falling back to cuda:0")
+                device = torch.device('cuda:0')
+                gpu_name = torch.cuda.get_device_name(0)
+                logger.info(f"✓ Using CUDA device 0 ({gpu_name})")
+                return device
+        else:
+            # Plain 'cuda' -> use cuda:0
+            device = torch.device('cuda:0')
+            gpu_name = torch.cuda.get_device_name(0)
+            num_gpus = torch.cuda.device_count()
+            logger.info(f"✓ Using CUDA device 0 ({gpu_name})")
+            if num_gpus > 1:
+                logger.info(f"   Note: {num_gpus} GPUs available. Use 'cuda:N' to select specific GPU.")
+            return device
+
+    # UNKNOWN DEVICE TYPE
+    logger.warning(f"⚠ Unknown device type: '{device_type}'")
+    logger.warning("   Supported types: 'auto', 'cpu', 'cuda', 'cuda:N', 'mps'")
+    logger.warning("→ Falling back to CPU")
     device = torch.device('cpu')
-    logger.info("Using CPU for computation")
     return device
 
 
@@ -246,3 +356,144 @@ def set_seed(seed=42):
         torch.backends.cudnn.benchmark = False
 
     logger.info(f"Random seed set to {seed}")
+
+
+def is_ddp():
+    """
+    Check if running in Distributed Data Parallel mode.
+
+    DDP is detected by checking if RANK environment variable is set
+    (typically by torchrun launcher).
+
+    Returns:
+        Boolean indicating if DDP is active
+    """
+    return int(os.environ.get('RANK', -1)) != -1
+
+
+def get_dist_info():
+    """
+    Get distributed training information from environment variables.
+
+    When using torchrun, these environment variables are automatically set:
+    - RANK: Global rank of this process (0 to world_size-1)
+    - LOCAL_RANK: Local rank on this machine (0 to local_world_size-1)
+    - WORLD_SIZE: Total number of processes across all machines
+
+    Returns:
+        Tuple of (is_ddp, ddp_rank, ddp_local_rank, ddp_world_size)
+        - is_ddp: Boolean indicating if DDP is active
+        - ddp_rank: Global rank (0 if not DDP)
+        - ddp_local_rank: Local rank (0 if not DDP)
+        - ddp_world_size: World size (1 if not DDP)
+
+    Example:
+        >>> is_ddp, rank, local_rank, world_size = get_dist_info()
+        >>> if rank == 0:
+        ...     print("I'm the master process")
+    """
+    if is_ddp():
+        # Verify all required environment variables are present
+        required_vars = ['RANK', 'LOCAL_RANK', 'WORLD_SIZE']
+        if not all(var in os.environ for var in required_vars):
+            logger.error(
+                "DDP mode detected but missing environment variables. "
+                f"Required: {required_vars}"
+            )
+            raise RuntimeError("Incomplete DDP environment variables")
+
+        ddp_rank = int(os.environ['RANK'])
+        ddp_local_rank = int(os.environ['LOCAL_RANK'])
+        ddp_world_size = int(os.environ['WORLD_SIZE'])
+
+        return True, ddp_rank, ddp_local_rank, ddp_world_size
+    else:
+        return False, 0, 0, 1
+
+
+def setup_distributed(device_type='cuda'):
+    """
+    Initialize distributed training (DDP).
+
+    This should be called before creating the model. It:
+    1. Gets distribution info from environment
+    2. Initializes the process group
+    3. Sets the correct device for this rank
+
+    Args:
+        device_type: Device type ('cuda', 'cpu', 'mps')
+
+    Returns:
+        Tuple of (is_ddp, ddp_rank, ddp_local_rank, ddp_world_size, device)
+
+    Example:
+        Launch with torchrun:
+        ```bash
+        torchrun --nproc_per_node=4 train.py
+        ```
+
+        In your training script:
+        ```python
+        is_ddp, rank, local_rank, world_size, device = setup_distributed('cuda')
+        model = Model().to(device)
+        if is_ddp:
+            model = DDP(model, device_ids=[local_rank])
+        ```
+    """
+    is_distributed, ddp_rank, ddp_local_rank, ddp_world_size = get_dist_info()
+
+    if is_distributed:
+        logger.info(f"Initializing DDP: rank={ddp_rank}, local_rank={ddp_local_rank}, world_size={ddp_world_size}")
+
+        # DDP only supports CUDA currently
+        if device_type == 'cuda':
+            if not torch.cuda.is_available():
+                raise RuntimeError("DDP requires CUDA but torch.cuda.is_available() is False")
+
+            # Set device for this rank
+            device = torch.device(f'cuda:{ddp_local_rank}')
+            torch.cuda.set_device(device)
+
+            # Initialize process group with NCCL backend (optimized for NVIDIA GPUs)
+            import torch.distributed as dist
+            dist.init_process_group(backend='nccl')
+
+            if ddp_rank == 0:
+                logger.info(f"✓ DDP initialized with NCCL backend ({ddp_world_size} GPUs)")
+        else:
+            logger.warning(
+                f"DDP requested with device_type='{device_type}', but DDP only supports CUDA. "
+                "Falling back to single-device training."
+            )
+            is_distributed = False
+            ddp_rank = 0
+            ddp_local_rank = 0
+            ddp_world_size = 1
+            device = torch.device(device_type)
+    else:
+        # Not distributed - single device
+        device = torch.device(device_type)
+        logger.info(f"Single-device mode: {device}")
+
+    return is_distributed, ddp_rank, ddp_local_rank, ddp_world_size, device
+
+
+def cleanup_distributed():
+    """
+    Clean up distributed training resources.
+
+    Call this at the end of training to properly shut down the process group.
+
+    Example:
+        ```python
+        try:
+            # ... training code ...
+            pass
+        finally:
+            cleanup_distributed()
+        ```
+    """
+    if is_ddp():
+        import torch.distributed as dist
+        dist.destroy_process_group()
+        logger.info("DDP process group destroyed")
