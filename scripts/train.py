@@ -29,10 +29,7 @@ from moellama import (
     LLaMA4Trainer,
     prepare_dataset,
     setup_device,
-    load_config,
-    get_dist_info,
-    setup_distributed,
-    cleanup_distributed,
+    load_config
 )
 from moellama.utils import log_model_info, set_seed
 
@@ -63,18 +60,9 @@ def main():
     )
     args = parser.parse_args()
 
-    # Detect and setup distributed training
-    is_ddp, ddp_rank, ddp_local_rank, ddp_world_size = get_dist_info()
-
-    # Only master process prints banner
-    if ddp_rank == 0:
-        logger.info("="*60)
-        logger.info("Starting MoE Language Model Training")
-        logger.info("="*60)
-
-        if is_ddp:
-            logger.info(f"Distributed Training: {ddp_world_size} GPUs")
-            logger.info(f"Rank: {ddp_rank}, Local Rank: {ddp_local_rank}")
+    logger.info("="*60)
+    logger.info("Starting MoE Language Model Training")
+    logger.info("="*60)
 
     try:
         # Set random seed for reproducibility
@@ -83,17 +71,8 @@ def main():
         # Load configuration
         config = load_config(args.config)
 
-        # Setup distributed (if DDP detected) or single device
-        device_type = config.get('device', {}).get('type', 'auto')
-        if device_type == 'auto':
-            device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-        if is_ddp:
-            # DDP mode: setup_distributed handles device selection
-            is_ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = setup_distributed(device_type)
-        else:
-            # Single device mode: use setup_device
-            device = setup_device(config)
+        # Setup device
+        device = setup_device(config)
 
         # Prepare dataset
         logger.info("Preparing dataset...")
@@ -129,24 +108,13 @@ def main():
             weight_decay=0.01
         )
 
-        # Get training configuration
-        training_config = config.get('training', {})
-        grad_accum_steps = training_config.get('grad_accum_steps', 1)
-        use_compile = training_config.get('use_compile', False)
-
-        # Create trainer with DDP support
+        # Create trainer
         trainer = LLaMA4Trainer(
             model=model,
             tokenizer=tokenizer,
             optimizer=optimizer,
             device=device,
             config=config,
-            use_ddp=is_ddp,
-            ddp_rank=ddp_rank,
-            ddp_local_rank=ddp_local_rank,
-            ddp_world_size=ddp_world_size,
-            use_compile=use_compile,
-            grad_accum_steps=grad_accum_steps,
         )
 
         # Train model
@@ -198,23 +166,17 @@ def main():
             logger.info(f"Generated: {generated_text[len(prompt):]}")
 
         # Save final model (master process only, handled in save_model)
-        if ddp_rank == 0:
-            logger.info("\n" + "="*60)
-            logger.info("Saving final model...")
+        logger.info("\n" + "="*60)
+        logger.info("Saving final model...")
         trainer.save_model(config["paths"]["model_path"])
 
-        if ddp_rank == 0:
-            logger.info("="*60)
-            logger.info("Training completed successfully!")
-            logger.info("="*60)
+        logger.info("="*60)
+        logger.info("Training completed successfully!")
+        logger.info("="*60)
 
     except Exception as e:
-        if ddp_rank == 0:
-            logger.exception(f"Training failed with error: {str(e)}")
+        logger.exception(f"Training failed with error: {str(e)}")
         raise
-    finally:
-        # Cleanup distributed resources
-        cleanup_distributed()
 
 
 if __name__ == "__main__":

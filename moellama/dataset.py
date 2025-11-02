@@ -335,6 +335,11 @@ def _prepare_multi_dataset(config, tokenizer=None, use_streaming=False, device=N
         train_mixture = []
         eval_mixture = []
 
+        # Get eval_percentage from config (default: 0.1 = 10%)
+        # This controls what percentage of each dataset to use for evaluation
+        # For example, if train uses 50% of a dataset, eval might use 10%
+        eval_percentage = training_config.get('eval_percentage', 0.1)
+
         for ds_dict in train_config['dataset_mixture']:
             # Train split
             train_ds = ds_dict.copy()
@@ -344,8 +349,11 @@ def _prepare_multi_dataset(config, tokenizer=None, use_streaming=False, device=N
             # Eval split (use smaller percentage for eval)
             eval_ds = ds_dict.copy()
             eval_ds['split'] = 'validation' if 'validation' in ds_dict.get('split', '') else 'train'
-            # Use 10% of the dataset for eval
-            eval_ds['percentage'] = min(0.1, ds_dict.get('percentage', 1.0))
+
+            # Apply eval_percentage limit to avoid large eval sets
+            # Uses min(eval_percentage, dataset_percentage) to ensure eval <= train size
+            dataset_percentage = ds_dict.get('percentage', 1.0)
+            eval_ds['percentage'] = min(eval_percentage, dataset_percentage)
             eval_mixture.append(eval_ds)
 
         train_config['dataset_mixture'] = train_mixture
@@ -425,12 +433,6 @@ def _prepare_multi_dataset(config, tokenizer=None, use_streaming=False, device=N
         else:
             logger.info(f"Using device from setup_device(): {device}")
 
-        # Get DDP info for distributed data loading
-        from moellama.utils import get_dist_info
-        _, rank, _, world_size = get_dist_info()
-
-        if world_size > 1:
-            logger.info(f"Using distributed data loading: rank={rank}, world_size={world_size}")
         batch_size = training_config['batch_size']
 
         train_loader = StreamingDataLoader(
@@ -439,8 +441,6 @@ def _prepare_multi_dataset(config, tokenizer=None, use_streaming=False, device=N
             batch_size=batch_size,
             seq_len=seq_len,
             device=device,
-            rank=rank,
-            world_size=world_size,
         )
 
         eval_loader = StreamingDataLoader(
@@ -449,8 +449,6 @@ def _prepare_multi_dataset(config, tokenizer=None, use_streaming=False, device=N
             batch_size=batch_size,
             seq_len=seq_len,
             device=device,
-            rank=rank,
-            world_size=world_size,
         )
 
         logger.info("Streaming data loaders created successfully")

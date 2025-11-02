@@ -18,12 +18,18 @@
   }
 
   # Device configuration
+  # IMPORTANT: CPUs are 100-200x slower than GPUs for training!
+  # - Apple Silicon: Set type="mps" for 10-20x speedup over CPU
+  # - NVIDIA GPU: Set type="cuda" for 100-200x speedup over CPU
+  # - Intel/AMD CPU: Consider cloud GPU (AWS, GCP, Lambda Labs)
   device {
-    type = "auto"
-    num_cpu_threads = -1
-    num_cpu_interop_threads = 2
-    gpu_ids = [0]
-    use_mps = false
+    type = "auto"  # "auto" (recommended), "cpu", "cuda", "mps"
+    # CPU optimization (only matters if using CPU)
+    num_cpu_threads = -1  # -1 = use all cores (recommended), or specify number
+    num_cpu_interop_threads = 2  # Inter-op parallelism (2 is optimal)
+    # GPU configuration
+    gpu_ids = [0]  # GPU IDs for multi-GPU (use with torchrun)
+    use_mps = true  # Enable MPS on Apple Silicon (10-20x faster than CPU)
   }
 
   # Multi-stage training enabled
@@ -188,6 +194,7 @@
     data_dir = "dataset"
     num_workers = 4
     stopping_strategy = "all_exhausted"
+    eval_percentage = 0.1    # Percentage of each dataset to use for eval (0.1 = 10%)
     max_eval_batches = 100  # Limit eval batches for streaming
 
     # Benchmark settings during training

@@ -39,6 +39,7 @@
     learning_rate = 3e-4
     epochs = 1                 # Single epoch for quick test
     eval_steps = 50
+    eval_percentage = 0.1      # Percentage of each dataset to use for eval (0.1 = 10%)
     max_eval_batches = 50      # Limit eval batches
     seq_len = 256
     data_dir = "dataset"

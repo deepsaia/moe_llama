@@ -185,16 +185,11 @@ class StreamingDataLoader:
             Text strings from dataset
         """
         if self.is_iterable:
-            # Iterable dataset: iterate with DDP-aware skipping
-            # Each rank processes every Nth document where N = world_size
-            doc_index = 0
+            # Iterable dataset: just iterate
             for example in self.dataset:
-                # Skip documents that don't belong to this rank
-                if doc_index % self.world_size == self.rank:
-                    text = self._extract_text(example)
-                    if text:
-                        yield text
-                doc_index += 1
+                text = self._extract_text(example)
+                if text:
+                    yield text
         else:
             # Map-style dataset: iterate with DDP slicing
             # Each rank processes different indices

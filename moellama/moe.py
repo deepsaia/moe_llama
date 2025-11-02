@@ -177,16 +177,14 @@ class Router(nn.Module):
         seq_len = x.size(0)
         capacity = min(seq_len, int(self.capacity_factor * seq_len / self.num_experts * self.top_k))
 
-        # Create binary mask indicating which tokens go to which experts
+        # Create binary mask indicating which tokens go to which experts (VECTORIZED)
         # Shape: [seq_len, num_experts] or [seq_len, num_experts+1] if shared expert
         num_mask_cols = self.num_experts + (1 if self.shared_expert else 0)
         expert_mask = torch.zeros(seq_len, num_mask_cols, device=x.device)
 
-        # For each token, mark its selected experts
-        for i in range(seq_len):
-            for j in range(self.top_k):
-                expert_idx = top_k_indices[i, j]
-                expert_mask[i, expert_idx] = 1
+        # Vectorized mask creation using scatter_
+        # For each token, mark its selected experts (no Python loops!)
+        expert_mask.scatter_(1, top_k_indices, 1.0)
 
         # Ensure shared expert is always active if enabled
         if self.shared_expert:
@@ -314,7 +312,7 @@ class MoELayer(nn.Module):
         # Initialize output tensor
         final_output = torch.zeros_like(x)
 
-        # Process each expert
+        # Process each expert (vectorized)
         for expert_idx in range(self.num_experts):
             # Find tokens routed to this expert
             token_mask = expert_mask[:, expert_idx].bool()
@@ -329,18 +327,17 @@ class MoELayer(nn.Module):
             # Process through the expert network
             expert_output = self.experts[expert_idx](expert_input)
 
-            # Find routing weights for this expert
-            # For each token that was routed here, find its weight
-            weights = []
-            for i, is_routed in enumerate(token_mask):
-                if is_routed:
-                    # Find position of this expert in the token's top-k list
-                    pos = (top_k_indices[i] == expert_idx).nonzero(as_tuple=True)[0]
-                    if len(pos) > 0:
-                        weights.append(router_weights[i, pos[0]])
+            # Find routing weights for this expert (VECTORIZED - much faster!)
+            # Create a mask for where top_k_indices equals expert_idx
+            # Shape: [num_tokens_routed, top_k]
+            expert_positions = (top_k_indices[token_mask] == expert_idx)
+
+            # Get the weights using the mask
+            # For each routed token, find which position in top_k has this expert
+            # Shape: [num_tokens_routed]
+            weights = (router_weights[token_mask] * expert_positions).sum(dim=1)
 
             # Apply routing weights to expert outputs
-            weights = torch.stack(weights)
             weighted_output = expert_output * weights.unsqueeze(-1)
 
             # Add to final output
