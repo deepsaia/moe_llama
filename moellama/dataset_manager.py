@@ -123,20 +123,15 @@ class DatasetManager:
             for ds_dict in self.config['dataset_mixture']:
                 configs.append(DatasetConfig(**ds_dict))
 
-            # Validate: All datasets must use same streaming mode
+            # Check for mixed streaming modes (now supported!)
             if len(configs) > 1:
                 streaming_modes = [ds.streaming for ds in configs]
                 if len(set(streaming_modes)) > 1:
-                    # Mixed streaming modes detected
-                    logger.warning(
-                        "Mixed streaming modes detected in dataset mixture. "
-                        "All datasets will be converted to the same mode."
+                    # Mixed streaming modes detected - this is OK
+                    logger.info(
+                        "Mixed streaming modes detected: some datasets streaming, others not. "
+                        "This is supported - small datasets can load fully while large ones stream."
                     )
-                    # Use streaming if ANY dataset requests it
-                    use_streaming = any(streaming_modes)
-                    logger.info(f"Setting all datasets to streaming={use_streaming}")
-                    for ds in configs:
-                        ds.streaming = use_streaming
 
             return configs
 
@@ -254,6 +249,40 @@ class DatasetManager:
         # Mix multiple datasets
         logger.info(f"Interleaving {len(datasets)} datasets with probabilities: {probabilities}")
         stopping_strategy = self.config.get('stopping_strategy', 'all_exhausted')
+
+        # Check if we have mixed Dataset/IterableDataset types
+        # HuggingFace interleave_datasets requires all same type
+        has_streaming = any(isinstance(ds, IterableDataset) for ds in datasets)
+        has_non_streaming = any(isinstance(ds, Dataset) and not isinstance(ds, IterableDataset) for ds in datasets)
+
+        if has_streaming and has_non_streaming:
+            # Mixed types detected - convert all to IterableDataset
+            logger.info("Converting non-streaming datasets to iterable for interleaving")
+            converted_datasets = []
+            kept_probabilities = []
+            for i, ds in enumerate(datasets):
+                if isinstance(ds, IterableDataset):
+                    converted_datasets.append(ds)
+                    kept_probabilities.append(probabilities[i])
+                else:
+                    # Check if dataset is empty (can happen with percentage sampling)
+                    if len(ds) == 0:
+                        logger.warning(
+                            f"Dataset at position {i} is empty after percentage sampling. "
+                            "Skipping this dataset."
+                        )
+                        continue
+                    # Convert Dataset to IterableDataset
+                    converted_datasets.append(ds.to_iterable_dataset())
+                    kept_probabilities.append(probabilities[i])
+
+            datasets = converted_datasets
+            probabilities = kept_probabilities
+
+            # Renormalize probabilities after removing empty datasets
+            if probabilities:
+                total = sum(probabilities)
+                probabilities = [p / total for p in probabilities]
 
         mixed_dataset = interleave_datasets(
             datasets,

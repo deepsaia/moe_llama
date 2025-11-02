@@ -831,8 +831,24 @@ class LLaMA4Trainer:
         logger.info(f"Saving model to {output_dir}")
         os.makedirs(output_dir, exist_ok=True)
 
-        # Get dataset name from config if not provided
-        dataset = dataset or self.config.get("training", {}).get("dataset", "unknown")
+        # Get model name from config (preferred) or dataset name (fallback)
+        if dataset is None:
+            # Try model name first
+            model_name = self.config.get("model", {}).get("name", None)
+            if model_name:
+                dataset = model_name
+            else:
+                # Fallback: try single dataset name
+                dataset = self.config.get("training", {}).get("dataset", None)
+                if dataset is None:
+                    # Multi-dataset config: derive name from dataset_mixture
+                    dataset_mixture = self.config.get("training", {}).get("dataset_mixture", None)
+                    if dataset_mixture and len(dataset_mixture) > 0:
+                        # Use first dataset name + "_multi"
+                        first_ds = dataset_mixture[0].get("name", "unknown")
+                        dataset = f"{first_ds.split('/')[-1]}_multi"
+                    else:
+                        dataset = "unknown"
 
         # Create filename with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

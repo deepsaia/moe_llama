@@ -348,6 +348,28 @@ Unlike traditional transformers that route every token through the same feed-for
 
 ## 📁 Project Structure
 
+### Directory Structure:
+
+```
+├── config
+├── dataset
+├── docs
+│   └── assets
+├── logs
+├── model
+│   ├── report
+│   └── tensorboard
+├── moellama
+│   ├── benchmarks
+│   └── stages
+├── prebuilt_frontend
+│   └── dist
+│       └── assets
+├── scripts
+├── tests
+└── trained_models
+```
+
 ### Module Overview
 
 #### Core Model Components
@@ -1074,50 +1096,9 @@ This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENS
 
 ## 🙏 Acknowledgments
 
-- Built for educational purposes to understand MoE architectures
+- Built for educational purposes to understand LLM architectures
 - Thanks to the PyTorch and HuggingFace communities
 - Multi-dataset and streaming design inspired by production-grade training pipelines
-
----
-
-## 🎉 What's New in v0.2.0
-
-### Multi-Dataset Training
-✅ Train on multiple datasets simultaneously with custom ratios
-✅ Percentage sampling (use 10% of a 100B token dataset)
-✅ Streaming support for memory-efficient training on massive datasets
-✅ Domain filtering for datasets like FineFineWeb
-✅ Three config formats: single dataset, simple list, or full mixture
-✅ 100% backward compatible with existing configs
-
-### Multi-Stage Training Pipeline
-✅ Base → Midtraining → SFT pipeline with automatic orchestration
-✅ Automatic checkpoint management between stages
-✅ Flexible stage enable/disable configuration
-✅ Lower learning rates at each stage for better convergence
-
-### PEFT/LoRA Support
-✅ Efficient fine-tuning with LoRA and QLoRA
-✅ Adapter merging and saving
-✅ Graceful fallback if PEFT not installed
-✅ Memory-efficient training for large models
-
-### Infrastructure Improvements
-✅ **Enhanced Logging with Loguru** - Color-coded console output, daily rotation with 7-day retention
-✅ **Centralized Configuration** - All config files organized in `config/` directory
-✅ Robust error handling and validation throughout pipeline
-✅ Comprehensive logging with dataset info
-✅ DDP-aware streaming data loader
-✅ Token buffer approach for constant memory usage
-✅ Enhanced test suite with pytest
-✅ Extensive documentation and migration guide
-
-### Example Configurations
-✅ `config_multi_simple.hocon` - Multi-dataset with custom ratios
-✅ `config_multi_large.hocon` - Large-scale streaming (100B+ tokens)
-✅ `config_multistage.hocon` - Complete pipeline with LoRA
-
-**Upgrade Guide**: See [Migration Guide](docs/migration_guide.md) for detailed instructions.
 
 ---
 

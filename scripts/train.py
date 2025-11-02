@@ -68,6 +68,9 @@ def main():
         # Set random seed for reproducibility
         set_seed(args.seed)
 
+        # DDP rank (0 for single-device training)
+        ddp_rank = 0
+
         # Load configuration
         config = load_config(args.config)
 
@@ -129,7 +132,9 @@ def main():
             eval_steps=config["training"]["eval_steps"],
             output_dir=config["paths"]["output_dir"],
             num_workers=config["training"].get("num_workers", 4),
-            max_eval_batches=config["training"].get("max_eval_batches", None)
+            max_eval_batches=config["training"].get("max_eval_batches", None),
+            run_benchmarks=config["training"].get("run_benchmarks", True),
+            benchmark_samples=config["training"].get("benchmark_samples", 100)
         )
 
         # Generate training history plot (master process only)
@@ -149,11 +154,10 @@ def main():
                 dtype=torch.long
             ).unsqueeze(0).to(device)
 
-            # Use raw model for generation (unwrapped)
-            raw_model = trainer.raw_model
-            raw_model.eval()
+            # Use model for generation
+            trainer.model.eval()
 
-            generated_ids = raw_model.generate(
+            generated_ids = trainer.model.generate(
                 input_ids,
                 max_new_tokens=100,
                 temperature=0.8,

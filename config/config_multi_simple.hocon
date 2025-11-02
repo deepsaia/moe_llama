@@ -52,23 +52,24 @@
     # Streaming = tokenizes on-the-fly, no upfront wait time
     dataset_mixture = [
       {
-        name = "tiny_shakespeare"
-        ratio = 0.6              # 60% of training data
-        split = "train"
-        streaming = true         # Streaming for instant loading
-      }
-      {
         name = "Salesforce/wikitext"
         subset = "wikitext-2-v1" # Specific subset
-        ratio = 0.4              # 40% of training data
+        ratio = 0.9              # 40% of training data
         split = "train"
-        streaming = true         # Streaming for instant loading
-        percentage = 0.2         # Use 20% for faster testing
+        streaming = true         # Stream (large: 3.7M rows, 644MB)
+        percentage = 0.2         # Use 20% for faster testing (~740k rows)
+      }
+      {
+        name = "roneneldan/TinyStories"  # Different domain: children's stories
+        ratio = 0.1
+        split = "train"
+        streaming = true
+        percentage = 0.01  # ~27k rows from 2.7M total
       }
     ]
 
     # Mixing strategy
-    stopping_strategy = "all_exhausted"  # or "first_exhausted"
+    stopping_strategy = "first_exhausted"  # or "all_exhausted"
 
     # Standard training parameters
     batch_size = 16
@@ -88,7 +89,7 @@
     use_compile = false          # Use torch.compile() for 20-30% speedup (PyTorch 2.0+, works on GPU, slow on CPU)
 
     # Benchmark settings (separate from eval_steps)
-    run_benchmarks = true        # Run benchmarks at end of each epoch
+    run_benchmarks = false       # Disable benchmarks (model needs more training to avoid NaN in generation)
     benchmark_samples = 100      # Samples per benchmark during training (quick eval)
 
     # Logging configuration
