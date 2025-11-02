@@ -422,10 +422,35 @@ class LLaMA4Trainer:
 
         # Initialize TensorBoard writer (always)
         if TENSORBOARD_AVAILABLE:
-            log_dir = os.path.join(output_dir, 'tensorboard')
+            # Create descriptive run name for TensorBoard
+            model_name = self.config.get('model', {}).get('name', 'moellama')
+            dataset_name = self.config.get('training', {}).get('dataset', 'unknown')
+
+            # Sanitize dataset name: remove slashes and use last part for HF datasets
+            # e.g., "Salesforce/wikitext" -> "wikitext"
+            if '/' in dataset_name:
+                dataset_name = dataset_name.split('/')[-1]
+
+            # For multi-dataset, show first dataset name
+            if 'dataset_mixture' in self.config.get('training', {}):
+                dataset_mixture = self.config['training']['dataset_mixture']
+                if dataset_mixture and len(dataset_mixture) > 0:
+                    first_ds = dataset_mixture[0].get('name', 'unknown')
+                    # Sanitize first dataset name as well
+                    if '/' in first_ds:
+                        first_ds = first_ds.split('/')[-1]
+                    dataset_name = f"{first_ds}_multi"
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            run_name = f"{model_name}_{dataset_name}_{timestamp}"
+
+            # Use run name as subdirectory so TensorBoard shows it properly
+            log_dir = os.path.join(output_dir, 'tensorboard', run_name)
             os.makedirs(log_dir, exist_ok=True)
+
             self.writer = SummaryWriter(log_dir=log_dir)
             logger.info(f"TensorBoard logging to: {log_dir}")
+            logger.info(f"TensorBoard run name: {run_name}")
         else:
             logger.warning("TensorBoard not available. Install with: pip install tensorboard")
             self.writer = None
@@ -551,6 +576,10 @@ class LLaMA4Trainer:
                 epoch_losses.append(loss.item())
                 epoch_load_balancing_losses.append(load_balancing_loss.item())
 
+                # Add to training history for plotting
+                self.history['loss'].append(loss.item())
+                self.history['load_balancing_loss'].append(load_balancing_loss.item())
+
                 # Update progress bar
                 progress_bar.set_postfix({
                     'loss': f"{loss.item():.4f}",
@@ -576,6 +605,9 @@ class LLaMA4Trainer:
                         f"Eval Loss: {eval_loss:.4f} | "
                         f"Perplexity: {eval_ppl:.2f}"
                     )
+                    # Add to training history for plotting
+                    self.history['perplexity'].append(eval_ppl)
+
                     # Log eval metrics
                     self.log_metrics({
                         'eval/loss': eval_loss,
@@ -626,8 +658,21 @@ class LLaMA4Trainer:
 
         # Training complete
         training_time = time.time() - training_start_time
+        completion_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Format duration in a human-readable way
+        hours = int(training_time // 3600)
+        minutes = int((training_time % 3600) // 60)
+        seconds = int(training_time % 60)
+
         logger.info(f"\n{'='*80}")
-        logger.info(f"Training completed in {training_time/3600:.2f} hours")
+        logger.info(f"Training completed at: {completion_time}")
+        if hours > 0:
+            logger.info(f"Total training time: {hours}h {minutes}m {seconds}s")
+        elif minutes > 0:
+            logger.info(f"Total training time: {minutes}m {seconds}s")
+        else:
+            logger.info(f"Total training time: {seconds}s")
         logger.info(f"{'='*80}\n")
 
         # Run comprehensive final benchmarks
@@ -849,6 +894,11 @@ class LLaMA4Trainer:
                         dataset = f"{first_ds.split('/')[-1]}_multi"
                     else:
                         dataset = "unknown"
+                else:
+                    # Sanitize dataset name: remove slashes for HF datasets
+                    # e.g., "Salesforce/wikitext" -> "wikitext"
+                    if '/' in dataset:
+                        dataset = dataset.split('/')[-1]
 
         # Create filename with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
