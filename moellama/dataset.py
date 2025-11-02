@@ -205,17 +205,18 @@ def prepare_dataset(config, tokenizer=None, use_streaming=None, device=None):
         else:
             # OLD: Single dataset mode (backward compatible)
             logger.info("Using single-dataset mode (backward compatible)")
-            return _prepare_single_dataset(config, tokenizer)
+            return _prepare_single_dataset(config, tokenizer, use_streaming, device)
     except Exception as e:
         logger.error(f"Failed to prepare datasets: {str(e)}")
         raise
 
 
-def _prepare_single_dataset(config, tokenizer=None):
+def _prepare_single_dataset(config, tokenizer=None, use_streaming=None, device=None):
     """
     Prepare single dataset (backward compatible).
 
-    This preserves the original behavior exactly.
+    This preserves the original behavior exactly, with added support for
+    subset, split, and streaming parameters.
     """
     logger.info(f"Preparing single dataset (backward compatible mode)")
 
@@ -264,7 +265,26 @@ def _prepare_single_dataset(config, tokenizer=None):
         logger.info(f"Loading dataset '{dataset_name}' from Hugging Face")
         from datasets import load_dataset
 
-        dataset = load_dataset(dataset_name)["train"]
+        # Get optional parameters from config
+        subset = training_config.get('subset', None)
+        split = training_config.get('split', 'train')
+        streaming = training_config.get('streaming', False)
+
+        # Build load_dataset arguments
+        load_kwargs = {'path': dataset_name, 'split': split}
+        if subset:
+            load_kwargs['name'] = subset
+            logger.info(f"Using subset: {subset}")
+
+        logger.info(f"Loading split: {split}, streaming: {streaming}")
+
+        if streaming:
+            # Streaming mode - use DatasetManager for better support
+            logger.info("Streaming mode detected, using DatasetManager for efficient loading")
+            return _prepare_multi_dataset(config, tokenizer, use_streaming=True, device=device)
+
+        # Non-streaming mode - load directly
+        dataset = load_dataset(**load_kwargs)
         texts = dataset["text"]
         logger.info(f"Loaded {len(texts)} examples")
 

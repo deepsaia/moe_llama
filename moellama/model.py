@@ -276,45 +276,53 @@ class LLaMA4MoE(nn.Module):
 
             # Focus on the last time step (next token prediction)
             # Shape: [batch, vocab_size]
-            logits = logits[:, -1, :] / temperature
+            logits = logits[:, -1, :]
 
-            # Apply top-k filtering if specified
-            if top_k is not None:
-                top_k = min(top_k, logits.size(-1))  # Safety check
-                values, _ = torch.topk(logits, top_k)
-                min_val = values[:, -1]
-                # Set logits below top-k threshold to -inf
-                logits = torch.where(
-                    logits < min_val,
-                    torch.full_like(logits, float('-inf')),
-                    logits
-                )
+            # Handle greedy decoding (temperature=0) as special case
+            if temperature <= 0.0 or temperature < 1e-6:
+                # Greedy decoding: just take argmax
+                next_token = logits.argmax(dim=-1, keepdim=True)
+            else:
+                # Apply temperature scaling
+                logits = logits / temperature
 
-            # Apply top-p (nucleus) filtering if specified
-            if top_p is not None and top_p < 1.0:
-                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-                cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+                # Apply top-k filtering if specified
+                if top_k is not None:
+                    top_k = min(top_k, logits.size(-1))  # Safety check
+                    values, _ = torch.topk(logits, top_k)
+                    min_val = values[:, -1].unsqueeze(-1)
+                    # Set logits below top-k threshold to -inf
+                    logits = torch.where(
+                        logits < min_val,
+                        torch.full_like(logits, float('-inf')),
+                        logits
+                    )
 
-                # Remove tokens with cumulative probability above threshold
-                sorted_indices_to_remove = cumulative_probs > top_p
+                # Apply top-p (nucleus) filtering if specified
+                if top_p is not None and top_p < 1.0:
+                    sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+                    cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
 
-                # Shift right to keep at least one token
-                sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-                sorted_indices_to_remove[..., 0] = 0
+                    # Remove tokens with cumulative probability above threshold
+                    sorted_indices_to_remove = cumulative_probs > top_p
 
-                # Scatter back to original order
-                indices_to_remove = sorted_indices_to_remove.scatter(
-                    1, sorted_indices, sorted_indices_to_remove
-                )
+                    # Shift right to keep at least one token
+                    sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                    sorted_indices_to_remove[..., 0] = 0
 
-                # Set removed tokens to -inf
-                logits[indices_to_remove] = float('-inf')
+                    # Scatter back to original order
+                    indices_to_remove = sorted_indices_to_remove.scatter(
+                        1, sorted_indices, sorted_indices_to_remove
+                    )
 
-            # Apply softmax to get probabilities
-            probs = F.softmax(logits, dim=-1)
+                    # Set removed tokens to -inf
+                    logits[indices_to_remove] = float('-inf')
 
-            # Sample next token
-            next_token = torch.multinomial(probs, num_samples=1)
+                # Apply softmax to get probabilities
+                probs = F.softmax(logits, dim=-1)
+
+                # Sample next token
+                next_token = torch.multinomial(probs, num_samples=1)
 
             # Append to the sequence
             generated = torch.cat([generated, next_token], dim=1)

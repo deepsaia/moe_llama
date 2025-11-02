@@ -154,7 +154,16 @@ class DatasetManager:
             name = self.config['dataset']
             # Default to streaming=false for backward compatibility
             streaming = self.config.get('streaming', False)
-            return [DatasetConfig(name=name, ratio=1.0, streaming=streaming)]
+            # Get optional subset and split parameters
+            subset = self.config.get('subset', None)
+            split = self.config.get('split', 'train')
+            return [DatasetConfig(
+                name=name,
+                ratio=1.0,
+                streaming=streaming,
+                subset=subset,
+                split=split
+            )]
 
         else:
             raise ValueError(

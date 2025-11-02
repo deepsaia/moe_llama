@@ -54,17 +54,17 @@
       {
         name = "Salesforce/wikitext"
         subset = "wikitext-2-v1" # Specific subset
-        ratio = 0.9              # 40% of training data
+        ratio = 0.999              # 40% of training data
         split = "train"
         streaming = true         # Stream (large: 3.7M rows, 644MB)
-        percentage = 0.2         # Use 20% for faster testing (~740k rows)
+        percentage = 1         # Use 20% for faster testing (~740k rows)
       }
       {
         name = "roneneldan/TinyStories"  # Different domain: children's stories
-        ratio = 0.1
+        ratio = 0.001
         split = "train"
         streaming = true
-        percentage = 0.01  # ~27k rows from 2.7M total
+        percentage = 0.001  # ~27k rows from 2.7M total
       }
     ]
 
