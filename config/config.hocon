@@ -1,6 +1,7 @@
 {
   # Model architecture configuration
   model {
+    name = "moellama"  # Model name (used in reports and checkpoints)
     vocab_size = 10000  # Will be updated after tokenizer is created
     dim = 256         # Model dimension
     num_layers = 4    # Number of transformer layers
@@ -32,6 +33,16 @@
     seq_len = 256
     data_dir = "dataset"  # Directory to store downloaded datasets
     num_workers = 4  # Number of data loading workers
+    max_eval_batches = 100  # Limit eval batches for streaming datasets (null = unlimited)
+
+    # Benchmark settings during training
+    run_benchmarks = true  # Run benchmarks at end of each epoch
+    benchmark_samples = 100  # Samples per benchmark during training (quick eval)
+
+    # Logging configuration
+    use_wandb = false  # Enable WandB logging (TensorBoard always enabled)
+    wandb_project = "moellama-training"  # WandB project name
+    wandb_run_name = null  # WandB run name (null = auto-generated)
   }
   
   # Inference configuration
@@ -48,6 +59,27 @@
     output_dir = "./model"           # Temporary output directory during training
   }
 
+  # Benchmarks configuration (for standalone benchmark runner)
+  benchmarks {
+    # Standard LLM benchmarks to run
+    enabled_benchmarks = [
+      "ARC-Easy",        # AI2 Reasoning Challenge (Easy)
+      "ARC-Challenge",   # AI2 Reasoning Challenge (Challenge)
+      "MMLU",            # Massive Multitask Language Understanding
+      "GSM8K",           # Grade School Math 8K
+      "HellaSwag",       # Commonsense reasoning
+      "WinoGrande"       # Pronoun resolution
+    ]
+
+    # Evaluation parameters
+    max_samples = null  # Max samples per benchmark (null = all samples)
+    max_new_tokens = 256  # Max tokens for generation
+    temperature = 0.0  # Temperature (0.0 = greedy decoding for benchmarks)
+
+    # Output directory for benchmark reports
+    output_dir = "./report"
+  }
+
   # Evaluation configuration
   evaluation {
     enabled = true  # Set to false to skip evaluation
@@ -59,8 +91,6 @@
       "generation",      # Sample text generation
       "counting",        # Letter counting ability
       "simple_math"      # Basic arithmetic
-      # Standard benchmarks (not yet implemented):
-      # "ARC-Easy", "ARC-Challenge", "MMLU", "GSM8K", "HumanEval", "ChatCORE"
     ]
 
     # Evaluation parameters

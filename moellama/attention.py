@@ -8,11 +8,10 @@ focus on different parts of the input sequence when processing each token.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import logging
+from loguru import logger
 
 from moellama.layers import RotaryPositionalEmbeddings
 
-logger = logging.getLogger(__name__)
 
 
 class MultiHeadAttention(nn.Module):

@@ -21,8 +21,7 @@ from moellama.tokenizer import BPETokenizer
 from moellama.trainer import LLaMA4Trainer
 from moellama.dataset import TextDataset, prepare_dataset
 from moellama.utils import setup_device, load_config
-from moellama.benchmarks import BenchmarkSuite, run_benchmarks
-from moellama.report import ReportGenerator, generate_report
+from moellama.logging_setup import setup_logging, get_logger
 
 __version__ = "0.2.0"
 __all__ = [
@@ -33,8 +32,6 @@ __all__ = [
     "prepare_dataset",
     "setup_device",
     "load_config",
-    "BenchmarkSuite",
-    "run_benchmarks",
-    "ReportGenerator",
-    "generate_report",
+    "setup_logging",
+    "get_logger",
 ]

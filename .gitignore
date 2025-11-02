@@ -25,6 +25,16 @@ frontend/node_modules/
 # Evaluation reports
 report.md
 *.report.md
+report/
+tensorboard/
+*.tfevents.*
+
+# Logging
+logs/
+
+# Temporary training files (legacy)
+temp_train.txt
+
 develop-eggs/
 dist/
 downloads/

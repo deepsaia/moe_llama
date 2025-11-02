@@ -1,0 +1,138 @@
+{
+  # Simple Multi-Dataset Configuration
+  # Mix two datasets with custom ratios using STREAMING mode
+  #
+  # ⚡ STREAMING MODE (streaming=true):
+  #   - Instant loading (no upfront tokenization)
+  #   - Tokenizes on-the-fly during training
+  #   - Constant memory usage
+  #   - Recommended for ALL multi-dataset configs
+  #
+  # 📝 NON-STREAMING MODE (streaming=false):
+  #   - Slow: tokenizes all texts upfront (minutes for 1000s of texts)
+  #   - Only use for single large-text datasets (like tiny_shakespeare alone)
+  #   - See config_multi_tiny.hocon for fast non-streaming example
+
+  # Model architecture (same as base config)
+  model {
+    name = "moellama_multi"  # Model name (used in reports and checkpoints)
+    vocab_size = 10000
+    dim = 256
+    num_layers = 4
+    num_heads = 8
+    num_experts = 8
+    top_k = 2
+    max_seq_len = 256
+    dropout = 0.1
+    shared_expert = true
+    load_balancing_loss_coef = 0.01
+  }
+
+  # Device configuration
+  device {
+    type = "auto"
+    num_cpu_threads = -1
+    num_cpu_interop_threads = 2
+    gpu_ids = [0]
+    use_mps = false
+  }
+
+  # Training configuration with multi-dataset
+  training {
+    # NEW: Multi-dataset mixture with ratios
+    # Uses streaming mode by default for faster loading
+    # Streaming = tokenizes on-the-fly, no upfront wait time
+    dataset_mixture = [
+      {
+        name = "tiny_shakespeare"
+        ratio = 0.6              # 60% of training data
+        split = "train"
+        streaming = true         # Streaming for instant loading
+      }
+      {
+        name = "Salesforce/wikitext"
+        subset = "wikitext-2-v1" # Specific subset
+        ratio = 0.4              # 40% of training data
+        split = "train"
+        streaming = true         # Streaming for instant loading
+        percentage = 0.5         # Use 10% for faster testing
+      }
+    ]
+
+    # Mixing strategy
+    stopping_strategy = "all_exhausted"  # or "first_exhausted"
+
+    # Standard training parameters
+    batch_size = 16
+    learning_rate = 3e-4
+    epochs = 3
+    eval_steps = 100
+    max_eval_batches = 50        # Limit eval to 50 batches for streaming
+    seq_len = 256
+    data_dir = "dataset"
+    num_workers = 4
+
+    # Benchmark settings during training
+    run_benchmarks = true  # Run benchmarks at end of each epoch
+    benchmark_samples = 100  # Samples per benchmark during training (quick eval)
+
+    # Logging configuration
+    use_wandb = false  # Enable WandB logging (TensorBoard always enabled)
+    wandb_project = "moellama-training"  # WandB project name
+    wandb_run_name = null  # WandB run name (null = auto-generated)
+  }
+
+  # Inference configuration
+  inference {
+    max_new_tokens = 200
+    temperature = 0.8
+    top_k = 50
+    top_p = 0.95
+  }
+
+  # Paths configuration
+  paths {
+    model_path = "./trained_models"
+    output_dir = "./model"
+  }
+
+  # Benchmarks configuration (for standalone benchmark runner)
+  benchmarks {
+    # Standard LLM benchmarks to run
+    enabled_benchmarks = [
+      "ARC-Easy",        # AI2 Reasoning Challenge (Easy)
+      "ARC-Challenge",   # AI2 Reasoning Challenge (Challenge)
+      "MMLU",            # Massive Multitask Language Understanding
+      "GSM8K",           # Grade School Math 8K
+      "HellaSwag",       # Commonsense reasoning
+      "WinoGrande"       # Pronoun resolution
+    ]
+
+    # Evaluation parameters
+    max_samples = null  # Max samples per benchmark (null = all samples)
+    max_new_tokens = 256  # Max tokens for generation
+    temperature = 0.0  # Temperature (0.0 = greedy decoding for benchmarks)
+
+    # Output directory for benchmark reports
+    output_dir = "./report"
+  }
+
+  # Evaluation configuration
+  evaluation {
+    enabled = true
+    enabled_benchmarks = [
+      "perplexity",
+      "accuracy",
+      "generation"
+    ]
+    batch_size = 16
+    test_prompts = [
+      "Once upon a time",
+      "The future of",
+      "In a distant land"
+    ]
+    generation_max_tokens = 50
+    generation_temperature = 0.8
+    report_path = "report.md"
+  }
+}

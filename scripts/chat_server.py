@@ -26,7 +26,8 @@ import os
 import json
 import uuid
 import time
-import logging
+from loguru import logger
+from moellama.logging_setup import setup_logging
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import List, Optional, AsyncGenerator, Dict
@@ -42,11 +43,7 @@ from pydantic import BaseModel
 from moellama import LLaMA4MoE, BPETokenizer, load_config, setup_device
 
 # Logging configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+setup_logging()
 
 # Request limits (abuse prevention)
 MAX_MESSAGES_PER_REQUEST = 100
@@ -63,7 +60,7 @@ MAX_MAX_TOKENS = 2048
 parser = argparse.ArgumentParser(description='MoE Chat Server')
 parser.add_argument('--host', type=str, default='127.0.0.1', help='Host to bind')
 parser.add_argument('--port', type=int, default=8000, help='Port to run on')
-parser.add_argument('--config', type=str, default='config.hocon', help='Config file')
+parser.add_argument('--config', type=str, default='config/config.hocon', help='Config file')
 parser.add_argument('--model-dir', type=str, default=None, help='Override model directory')
 parser.add_argument('--dev-mode', action='store_true', help='Development mode (CORS, etc.)')
 args = parser.parse_args()
