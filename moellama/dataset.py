@@ -425,8 +425,12 @@ def _prepare_multi_dataset(config, tokenizer=None, use_streaming=False, device=N
         else:
             logger.info(f"Using device from setup_device(): {device}")
 
-        rank = 0  # TODO: Pass from training script for DDP
-        world_size = 1  # TODO: Pass from training script for DDP
+        # Get DDP info for distributed data loading
+        from moellama.utils import get_dist_info
+        _, rank, _, world_size = get_dist_info()
+
+        if world_size > 1:
+            logger.info(f"Using distributed data loading: rank={rank}, world_size={world_size}")
         batch_size = training_config['batch_size']
 
         train_loader = StreamingDataLoader(

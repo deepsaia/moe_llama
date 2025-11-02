@@ -28,14 +28,20 @@
     batch_size = 16
     learning_rate = 3e-4
     epochs = 3
-    eval_steps = 100
     dataset = "tiny_shakespeare"  # "tiny_shakespeare" or any HuggingFace dataset
     seq_len = 256
     data_dir = "dataset"  # Directory to store downloaded datasets
     num_workers = 4  # Number of data loading workers
+
+    # Evaluation settings
+    eval_steps = 0  # Periodic evaluation every N steps (0 = disable, only use epoch-end benchmarks)
     max_eval_batches = 100  # Limit eval batches for streaming datasets (null = unlimited)
 
-    # Benchmark settings during training
+    # Performance optimization
+    grad_accum_steps = 1  # Gradient accumulation steps (simulate larger batch sizes)
+    use_compile = false  # Use torch.compile() for 20-30% speedup (PyTorch 2.0+, GPU only)
+
+    # Benchmark settings (separate from eval_steps)
     run_benchmarks = true  # Run benchmarks at end of each epoch
     benchmark_samples = 100  # Samples per benchmark during training (quick eval)
 

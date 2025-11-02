@@ -68,7 +68,7 @@
     batch_size = 32          # Larger batches
     learning_rate = 3e-4
     epochs = 1               # Single pass over large data
-    eval_steps = 500         # Less frequent eval
+    eval_steps = 0         # Less frequent eval
     max_eval_batches = 100   # Limit eval batches for streaming
     seq_len = 512
     data_dir = "dataset"

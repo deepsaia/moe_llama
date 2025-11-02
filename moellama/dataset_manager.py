@@ -417,15 +417,43 @@ class DatasetManager:
 
         # Iterable dataset: use take
         else:
-            # For iterable datasets, we need to estimate size
-            # This is approximate since we don't know total size upfront
-            # We'll take a percentage of expected examples
-            # Note: This requires the dataset to support .take()
+            # For streaming datasets, try to get actual size from dataset info
             try:
-                # Estimate: assume large dataset, take proportional amount
-                # For very large datasets, this is approximate
-                estimated_size = int(1e9 * percentage)  # Rough estimate
-                return dataset.take(estimated_size)
+                # Try to get dataset info (works for HuggingFace datasets)
+                if hasattr(dataset, '_info') and dataset._info is not None:
+                    # Get split info
+                    split_info = dataset._info.splits.get(ds_config.split)
+                    if split_info and hasattr(split_info, 'num_examples'):
+                        total_size = split_info.num_examples
+                        sample_size = int(total_size * percentage)
+                        logger.info(f"Streaming dataset size: {total_size:,} items, taking {sample_size:,} ({percentage*100:.1f}%)")
+                        return dataset.take(sample_size)
+
+                # Fallback: try to get n_shards info (alternative way)
+                if hasattr(dataset, 'n_shards') and hasattr(dataset, '_ex_iterable'):
+                    # Estimate based on shard info (approximate)
+                    # Common datasets have known sizes we can hardcode
+                    known_sizes = {
+                        'wikitext-2-v1': {'train': 36718, 'validation': 3760, 'test': 4358},
+                        'wikitext-103-v1': {'train': 1801350, 'validation': 3760, 'test': 4358},
+                    }
+
+                    # Try to match known datasets
+                    dataset_name = ds_config.subset or ds_config.name
+                    if dataset_name in known_sizes and ds_config.split in known_sizes[dataset_name]:
+                        total_size = known_sizes[dataset_name][ds_config.split]
+                        sample_size = int(total_size * percentage)
+                        logger.info(f"Using known dataset size for {dataset_name}: {total_size:,} items, taking {sample_size:,} ({percentage*100:.1f}%)")
+                        return dataset.take(sample_size)
+
+                # Last resort: log warning and return full dataset
+                logger.warning(
+                    f"Cannot determine streaming dataset size for {ds_config.name}. "
+                    f"Percentage sampling ({percentage*100:.1f}%) will not be applied. "
+                    "Using full dataset instead."
+                )
+                return dataset
+
             except AttributeError:
                 logger.warning(
                     "Dataset does not support .take(), "

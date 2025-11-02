@@ -66,15 +66,21 @@
     batch_size = 16
     learning_rate = 3e-4
     epochs = 3
-    eval_steps = 100
-    max_eval_batches = 50        # Limit eval to 50 batches for streaming
     seq_len = 256
     data_dir = "dataset"
     num_workers = 4
 
-    # Benchmark settings during training
-    run_benchmarks = true  # Run benchmarks at end of each epoch
-    benchmark_samples = 100  # Samples per benchmark during training (quick eval)
+    # Evaluation settings
+    eval_steps = 0               # Periodic evaluation every N steps (0 = disable, only use epoch-end benchmarks)
+    max_eval_batches = 50        # Limit eval to 50 batches for streaming datasets
+
+    # Performance optimization
+    grad_accum_steps = 1         # Gradient accumulation steps (simulate larger batch sizes, e.g. 4 = 4x effective batch)
+    use_compile = false          # Use torch.compile() for 20-30% speedup (PyTorch 2.0+, works on GPU, slow on CPU)
+
+    # Benchmark settings (separate from eval_steps)
+    run_benchmarks = true        # Run benchmarks at end of each epoch
+    benchmark_samples = 100      # Samples per benchmark during training (quick eval)
 
     # Logging configuration
     use_wandb = false  # Enable WandB logging (TensorBoard always enabled)

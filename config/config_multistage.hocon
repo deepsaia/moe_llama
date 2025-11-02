@@ -64,7 +64,7 @@
       batch_size = 32
       learning_rate = 3e-4
       epochs = 3
-      eval_steps = 500
+      eval_steps = 0
       seq_len = 512
 
       # Save checkpoint after base training

@@ -29,7 +29,10 @@ from moellama import (
     LLaMA4Trainer,
     prepare_dataset,
     setup_device,
-    load_config
+    load_config,
+    get_dist_info,
+    setup_distributed,
+    cleanup_distributed,
 )
 from moellama.utils import log_model_info, set_seed
 
@@ -60,9 +63,18 @@ def main():
     )
     args = parser.parse_args()
 
-    logger.info("="*60)
-    logger.info("Starting MoE Language Model Training")
-    logger.info("="*60)
+    # Detect and setup distributed training
+    is_ddp, ddp_rank, ddp_local_rank, ddp_world_size = get_dist_info()
+
+    # Only master process prints banner
+    if ddp_rank == 0:
+        logger.info("="*60)
+        logger.info("Starting MoE Language Model Training")
+        logger.info("="*60)
+
+        if is_ddp:
+            logger.info(f"Distributed Training: {ddp_world_size} GPUs")
+            logger.info(f"Rank: {ddp_rank}, Local Rank: {ddp_local_rank}")
 
     try:
         # Set random seed for reproducibility
@@ -71,8 +83,17 @@ def main():
         # Load configuration
         config = load_config(args.config)
 
-        # Setup device
-        device = setup_device(config)
+        # Setup distributed (if DDP detected) or single device
+        device_type = config.get('device', {}).get('type', 'auto')
+        if device_type == 'auto':
+            device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+        if is_ddp:
+            # DDP mode: setup_distributed handles device selection
+            is_ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = setup_distributed(device_type)
+        else:
+            # Single device mode: use setup_device
+            device = setup_device(config)
 
         # Prepare dataset
         logger.info("Preparing dataset...")
@@ -108,20 +129,24 @@ def main():
             weight_decay=0.01
         )
 
-        # Configure multi-GPU training if requested
-        device_config = config.get('device', {})
-        use_data_parallel = device_config.get('use_data_parallel', False)
-        gpu_ids = device_config.get('gpu_ids', [0])
+        # Get training configuration
+        training_config = config.get('training', {})
+        grad_accum_steps = training_config.get('grad_accum_steps', 1)
+        use_compile = training_config.get('use_compile', False)
 
-        # Create trainer
+        # Create trainer with DDP support
         trainer = LLaMA4Trainer(
             model=model,
             tokenizer=tokenizer,
             optimizer=optimizer,
             device=device,
-            use_data_parallel=use_data_parallel,
-            gpu_ids=gpu_ids,
-            config=config
+            config=config,
+            use_ddp=is_ddp,
+            ddp_rank=ddp_rank,
+            ddp_local_rank=ddp_local_rank,
+            ddp_world_size=ddp_world_size,
+            use_compile=use_compile,
+            grad_accum_steps=grad_accum_steps,
         )
 
         # Train model
@@ -139,45 +164,57 @@ def main():
             max_eval_batches=config["training"].get("max_eval_batches", None)
         )
 
-        # Generate training history plot
-        logger.info("Generating training history plot...")
-        trainer.plot_training_history(config["paths"]["output_dir"])
+        # Generate training history plot (master process only)
+        if ddp_rank == 0:
+            logger.info("Generating training history plot...")
+            trainer.plot_training_history(config["paths"]["output_dir"])
 
-        # Generate sample text to verify the model works
-        logger.info("\n" + "="*60)
-        logger.info("Generating sample text...")
-        logger.info("="*60)
+        # Generate sample text to verify the model works (master process only)
+        if ddp_rank == 0:
+            logger.info("\n" + "="*60)
+            logger.info("Generating sample text...")
+            logger.info("="*60)
 
-        prompt = "To be or not to be"
-        input_ids = torch.tensor(
-            tokenizer.encode(prompt),
-            dtype=torch.long
-        ).unsqueeze(0).to(device)
+            prompt = "To be or not to be"
+            input_ids = torch.tensor(
+                tokenizer.encode(prompt),
+                dtype=torch.long
+            ).unsqueeze(0).to(device)
 
-        generated_ids = model.generate(
-            input_ids,
-            max_new_tokens=100,
-            temperature=0.8,
-            top_k=50,
-            top_p=0.95
-        )
+            # Use raw model for generation (unwrapped)
+            raw_model = trainer.raw_model
+            raw_model.eval()
 
-        generated_text = tokenizer.decode(generated_ids[0].tolist())
-        logger.info(f"\nPrompt: {prompt}")
-        logger.info(f"Generated: {generated_text[len(prompt):]}")
+            generated_ids = raw_model.generate(
+                input_ids,
+                max_new_tokens=100,
+                temperature=0.8,
+                top_k=50,
+                top_p=0.95
+            )
 
-        # Save final model
-        logger.info("\n" + "="*60)
-        logger.info("Saving final model...")
+            generated_text = tokenizer.decode(generated_ids[0].tolist())
+            logger.info(f"\nPrompt: {prompt}")
+            logger.info(f"Generated: {generated_text[len(prompt):]}")
+
+        # Save final model (master process only, handled in save_model)
+        if ddp_rank == 0:
+            logger.info("\n" + "="*60)
+            logger.info("Saving final model...")
         trainer.save_model(config["paths"]["model_path"])
 
-        logger.info("="*60)
-        logger.info("Training completed successfully!")
-        logger.info("="*60)
+        if ddp_rank == 0:
+            logger.info("="*60)
+            logger.info("Training completed successfully!")
+            logger.info("="*60)
 
     except Exception as e:
-        logger.exception(f"Training failed with error: {str(e)}")
+        if ddp_rank == 0:
+            logger.exception(f"Training failed with error: {str(e)}")
         raise
+    finally:
+        # Cleanup distributed resources
+        cleanup_distributed()
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ from moellama.model import LLaMA4MoE
 from moellama.tokenizer import BPETokenizer
 from moellama.trainer import LLaMA4Trainer
 from moellama.dataset import TextDataset, prepare_dataset
-from moellama.utils import setup_device, load_config
+from moellama.utils import setup_device, load_config, is_ddp, get_dist_info, setup_distributed, cleanup_distributed
 from moellama.logging_setup import setup_logging, get_logger
 
 __version__ = "0.2.0"
@@ -34,4 +34,8 @@ __all__ = [
     "load_config",
     "setup_logging",
     "get_logger",
+    "is_ddp",
+    "get_dist_info",
+    "setup_distributed",
+    "cleanup_distributed",
 ]

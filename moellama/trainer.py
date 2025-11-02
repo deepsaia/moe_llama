@@ -55,9 +55,18 @@ class LLaMA4Trainer:
         tokenizer: Tokenizer for encoding/decoding
         optimizer: Optimizer (typically AdamW)
         device: Device to train on ('cuda', 'cpu', 'mps')
-        use_data_parallel: Whether to use DataParallel for multi-GPU
-        gpu_ids: List of GPU IDs to use
         config: Configuration dictionary
+        use_ddp: Whether to use DistributedDataParallel for multi-GPU
+        ddp_rank: Global rank in DDP (0 to world_size-1)
+        ddp_local_rank: Local rank on this machine (for device selection)
+        ddp_world_size: Total number of processes in DDP
+        use_compile: Whether to use torch.compile() for speedup (PyTorch 2.0+)
+        grad_accum_steps: Gradient accumulation steps (simulates larger batch sizes)
+
+    Device Support:
+        - CPU: Single process, no DDP, compile may be slow
+        - Single GPU: Single process, mixed precision, fast compile
+        - Multiple GPUs: Use DDP (torchrun), NCCL backend, per-GPU processes
     """
 
     def __init__(
@@ -66,13 +75,17 @@ class LLaMA4Trainer:
         tokenizer,
         optimizer,
         device='cuda' if torch.cuda.is_available() else 'cpu',
-        use_data_parallel=False,
-        gpu_ids=None,
-        config=None
+        config=None,
+        use_ddp=False,
+        ddp_rank=0,
+        ddp_local_rank=0,
+        ddp_world_size=1,
+        use_compile=False,
+        grad_accum_steps=1,
     ):
-        self.model = model
         self.tokenizer = tokenizer
         self.optimizer = optimizer
+        self.config = config
 
         # Normalize device: accept both string and torch.device object
         if isinstance(device, str):
@@ -83,19 +96,48 @@ class LLaMA4Trainer:
             logger.warning(f"Invalid device type {type(device)}, defaulting to CPU")
             self.device = torch.device('cpu')
 
-        self.use_data_parallel = use_data_parallel
-        self.gpu_ids = gpu_ids
-        self.config = config
+        # DDP settings (for multi-GPU training)
+        self.use_ddp = use_ddp
+        self.ddp_rank = ddp_rank
+        self.ddp_local_rank = ddp_local_rank
+        self.ddp_world_size = ddp_world_size
+        self.is_master = (ddp_rank == 0)  # Only rank 0 logs and saves
+
+        # Gradient accumulation (simulate larger batch sizes)
+        self.grad_accum_steps = grad_accum_steps
+        if grad_accum_steps > 1:
+            logger.info(f"Using gradient accumulation: {grad_accum_steps} steps")
 
         # Mixed precision training scaler (CUDA only)
         self.scaler = GradScaler() if self.device.type == 'cuda' else None
 
-        # Setup multi-GPU training if requested
-        if use_data_parallel and gpu_ids and len(gpu_ids) > 1 and torch.cuda.is_available():
-            logger.info(f"Using DataParallel with GPUs: {gpu_ids}")
-            self.model = nn.DataParallel(self.model, device_ids=gpu_ids)
+        # Store original model before wrapping (for checkpointing)
+        self.raw_model = model
 
-        self.model.to(self.device)
+        # Setup multi-GPU training with DDP
+        if use_ddp:
+            if self.device.type != 'cuda':
+                logger.warning("DDP only supports CUDA. Falling back to single-device mode.")
+                self.use_ddp = False
+                self.model = model.to(self.device)
+            else:
+                logger.info(f"Using DDP: rank={ddp_rank}/{ddp_world_size}, local_rank={ddp_local_rank}")
+                model = model.to(self.device)
+                from torch.nn.parallel import DistributedDataParallel as DDP
+                self.model = DDP(model, device_ids=[ddp_local_rank])
+                logger.info(f"✓ DDP model wrapper initialized")
+        else:
+            # Single device (CPU or single GPU)
+            self.model = model.to(self.device)
+
+        # Optional: Compile model with PyTorch 2.0+ for speedup
+        if use_compile:
+            if hasattr(torch, 'compile'):
+                logger.info("Compiling model with torch.compile() for speedup...")
+                self.model = torch.compile(self.model)
+                logger.info("✓ Model compiled successfully")
+            else:
+                logger.warning("torch.compile() not available (requires PyTorch 2.0+). Skipping compilation.")
 
         # Validate tokenizer
         if tokenizer is not None:
@@ -129,10 +171,16 @@ class LLaMA4Trainer:
         """
         Log metrics to TensorBoard and WandB.
 
+        In DDP mode, only the master process (rank 0) logs to avoid duplicates.
+
         Args:
             metrics: Dictionary of metric names and values
             step: Current training step
         """
+        # Only master process logs
+        if not self.is_master:
+            return
+
         # Log to TensorBoard
         if self.writer is not None:
             for key, value in metrics.items():
@@ -403,12 +451,12 @@ class LLaMA4Trainer:
             eval_dataset: Evaluation dataset (optional)
             batch_size: Number of sequences per batch
             epochs: Number of training epochs
-            eval_steps: Evaluate every N steps
+            eval_steps: Evaluate every N steps during training (0 or None = disable periodic eval)
             save_steps: Save checkpoint every N steps (None = only at epoch end)
             output_dir: Directory to save checkpoints
             num_workers: Number of data loading workers
             max_eval_batches: Maximum number of batches to evaluate (None = auto)
-            run_benchmarks: Run benchmarks at end of each epoch (default: True)
+            run_benchmarks: Run benchmarks at end of each epoch - separate from eval_steps (default: True)
             benchmark_samples: Number of samples per benchmark (default: 100)
             use_wandb: Use WandB for logging (default: False, TensorBoard always used)
             wandb_project: WandB project name
@@ -503,6 +551,11 @@ class LLaMA4Trainer:
             logger.info(f"Starting epoch {epoch+1}/{epochs}")
             progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}")
 
+            # Gradient accumulation tracking
+            micro_step = 0
+            accumulated_loss = 0.0
+            accumulated_lb_loss = 0.0
+
             for batch in progress_bar:
                 # Handle both formats:
                 # - StreamingDataLoader yields (inputs, targets) tuple
@@ -515,9 +568,6 @@ class LLaMA4Trainer:
                     input_ids = batch.to(self.device, non_blocking=True)
                     targets = input_ids  # Use same tensor for labels (shifted internally)
 
-                # Zero gradients
-                self.optimizer.zero_grad()
-
                 # Forward pass (with mixed precision on CUDA)
                 if self.device.type == 'cuda':
                     with autocast():
@@ -525,78 +575,115 @@ class LLaMA4Trainer:
                         loss = outputs["loss"]
                         load_balancing_loss = outputs["load_balancing_loss"]
 
+                        # Normalize loss for gradient accumulation
+                        loss = loss / self.grad_accum_steps
+
                     # Backward pass with gradient scaling
                     self.scaler.scale(loss).backward()
-                    # Unscale before clipping
-                    self.scaler.unscale_(self.optimizer)
-                    # Clip gradients for stability
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-                    # Optimizer step with scaled gradients
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
+
+                    # Accumulate losses for logging (use original unnormalized values)
+                    accumulated_loss += loss.item() * self.grad_accum_steps
+                    accumulated_lb_loss += load_balancing_loss.item()
                 else:
                     # CPU or MPS: full precision
                     outputs = self.model(input_ids, labels=targets, training=True)
                     loss = outputs["loss"]
                     load_balancing_loss = outputs["load_balancing_loss"]
 
+                    # Normalize loss for gradient accumulation
+                    loss = loss / self.grad_accum_steps
+
                     # Backward pass
                     loss.backward()
-                    # Clip gradients
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-                    # Optimizer step
-                    self.optimizer.step()
 
-                # Track metrics
-                epoch_losses.append(loss.item())
-                epoch_load_balancing_losses.append(load_balancing_loss.item())
+                    # Accumulate losses for logging (use original unnormalized values)
+                    accumulated_loss += loss.item() * self.grad_accum_steps
+                    accumulated_lb_loss += load_balancing_loss.item()
 
-                # Update progress bar
-                progress_bar.set_postfix({
-                    'loss': f"{loss.item():.4f}",
-                    'lb_loss': f"{load_balancing_loss.item():.4f}"
-                })
+                micro_step += 1
 
-                global_step += 1
+                # Perform optimizer step after accumulating enough gradients
+                if micro_step % self.grad_accum_steps == 0:
+                    if self.device.type == 'cuda':
+                        # Unscale before clipping
+                        self.scaler.unscale_(self.optimizer)
+                        # Clip gradients for stability
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                        # Optimizer step with scaled gradients
+                        self.scaler.step(self.optimizer)
+                        self.scaler.update()
+                    else:
+                        # Clip gradients
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                        # Optimizer step
+                        self.optimizer.step()
 
-                # Log training metrics
-                self.log_metrics({
-                    'train/loss': loss.item(),
-                    'train/load_balancing_loss': load_balancing_loss.item(),
-                }, global_step)
+                    # Zero gradients for next accumulation
+                    self.optimizer.zero_grad()
 
-                # Periodic evaluation
-                if eval_dataset and global_step % eval_steps == 0:
-                    eval_loss, eval_ppl = self.evaluate(
-                        eval_dataset, batch_size, num_workers, max_eval_batches
-                    )
-                    logger.info(
-                        f"Step {global_step} | "
-                        f"Eval Loss: {eval_loss:.4f} | "
-                        f"Perplexity: {eval_ppl:.2f}"
-                    )
-                    # Log eval metrics
+                    # Average accumulated losses
+                    avg_loss = accumulated_loss / self.grad_accum_steps
+                    avg_lb_loss = accumulated_lb_loss / self.grad_accum_steps
+
+                    # Track metrics
+                    epoch_losses.append(avg_loss)
+                    epoch_load_balancing_losses.append(avg_lb_loss)
+
+                    # Update progress bar
+                    progress_bar.set_postfix({
+                        'loss': f"{avg_loss:.4f}",
+                        'lb_loss': f"{avg_lb_loss:.4f}"
+                    })
+
+                    # Increment global step (one step = one optimizer update)
+                    global_step += 1
+
+                    # Reset accumulators
+                    accumulated_loss = 0.0
+                    accumulated_lb_loss = 0.0
+
+                    # Log training metrics (only on optimizer steps)
                     self.log_metrics({
-                        'eval/loss': eval_loss,
-                        'eval/perplexity': eval_ppl,
+                        'train/loss': avg_loss,
+                        'train/load_balancing_loss': avg_lb_loss,
                     }, global_step)
-                    self.model.train()  # Back to training mode
 
-                # Periodic checkpointing
-                if save_steps and global_step % save_steps == 0:
-                    self.save_model(output_dir)
+                    # Periodic evaluation (during training, every N steps)
+                    # Set eval_steps=0 or None to disable periodic evaluation
+                    if eval_dataset and eval_steps and global_step % eval_steps == 0:
+                        eval_loss, eval_ppl = self.evaluate(
+                            eval_dataset, batch_size, num_workers, max_eval_batches
+                        )
+                        if self.is_master:
+                            logger.info(
+                                f"Step {global_step} | "
+                                f"Eval Loss: {eval_loss:.4f} | "
+                                f"Perplexity: {eval_ppl:.2f}"
+                            )
+                        # Log eval metrics
+                        self.log_metrics({
+                            'eval/loss': eval_loss,
+                            'eval/perplexity': eval_ppl,
+                        }, global_step)
+                        self.model.train()  # Back to training mode
+
+                    # Periodic checkpointing (only on optimizer steps)
+                    if save_steps and global_step % save_steps == 0:
+                        self.save_model(output_dir)
 
             # Save at end of epoch
             self.save_model(output_dir)
 
             # Log epoch metrics
-            avg_loss = sum(epoch_losses) / len(epoch_losses)
-            avg_lb_loss = sum(epoch_load_balancing_losses) / len(epoch_load_balancing_losses)
-            logger.info(
-                f"Epoch {epoch+1} completed | "
-                f"Avg Loss: {avg_loss:.4f} | "
-                f"Avg LB Loss: {avg_lb_loss:.4f}"
-            )
+            avg_loss = sum(epoch_losses) / len(epoch_losses) if epoch_losses else 0.0
+            avg_lb_loss = sum(epoch_load_balancing_losses) / len(epoch_load_balancing_losses) if epoch_load_balancing_losses else 0.0
+
+            if self.is_master:
+                logger.info(
+                    f"Epoch {epoch+1} completed | "
+                    f"Avg Loss: {avg_loss:.4f} | "
+                    f"Avg LB Loss: {avg_lb_loss:.4f}"
+                )
 
             # Log epoch-level metrics
             epoch_metrics = {
@@ -608,7 +695,8 @@ class LLaMA4Trainer:
             # Run benchmarks at end of epoch
             benchmark_results = None
             if run_benchmarks:
-                logger.info(f"\nRunning benchmarks for epoch {epoch+1}...")
+                if self.is_master:
+                    logger.info(f"\nRunning benchmarks for epoch {epoch+1}...")
                 benchmark_results = self.run_benchmarks(
                     benchmarks=None,
                     max_samples=benchmark_samples,
@@ -624,14 +712,16 @@ class LLaMA4Trainer:
 
         # Training complete
         training_time = time.time() - training_start_time
-        logger.info(f"\n{'='*80}")
-        logger.info(f"Training completed in {training_time/3600:.2f} hours")
-        logger.info(f"{'='*80}\n")
+        if self.is_master:
+            logger.info(f"\n{'='*80}")
+            logger.info(f"Training completed in {training_time/3600:.2f} hours")
+            logger.info(f"{'='*80}\n")
 
         # Run comprehensive final benchmarks
         if run_benchmarks:
             from moellama.benchmarks import get_comprehensive_benchmarks
-            logger.info("Running comprehensive final benchmarks (full evaluation)...")
+            if self.is_master:
+                logger.info("Running comprehensive final benchmarks (full evaluation)...")
             comprehensive_benchmarks = get_comprehensive_benchmarks(max_samples=None)  # All samples
             final_results = self.run_benchmarks(
                 benchmarks=comprehensive_benchmarks,
@@ -641,17 +731,18 @@ class LLaMA4Trainer:
             # Update report with final benchmarks
             self.update_report_final(final_results, training_time)
 
-        # Close TensorBoard writer
-        if self.writer is not None:
+        # Close TensorBoard writer (master process only)
+        if self.is_master and self.writer is not None:
             self.writer.close()
             logger.info("TensorBoard writer closed")
 
-        # Finish WandB run
-        if self.use_wandb and self.wandb_run is not None:
+        # Finish WandB run (master process only)
+        if self.is_master and self.use_wandb and self.wandb_run is not None:
             wandb.finish()
             logger.info("WandB run finished")
 
-        logger.info(f"Training report saved to: {self.report_path}")
+        if self.is_master:
+            logger.info(f"Training report saved to: {self.report_path}")
 
     def evaluate(self, eval_dataset, batch_size=16, num_workers=4, max_eval_batches=None):
         """
@@ -818,6 +909,8 @@ class LLaMA4Trainer:
         """
         Save model checkpoint and tokenizer.
 
+        In DDP mode, only the master process (rank 0) saves to avoid conflicts.
+
         Saves:
         - Model state dict with timestamp
         - Tokenizer vocabulary
@@ -826,6 +919,10 @@ class LLaMA4Trainer:
             output_dir: Directory to save to
             dataset: Dataset name (for filename, optional)
         """
+        # Only master process saves in DDP mode
+        if not self.is_master:
+            return
+
         logger.info(f"Saving model to {output_dir}")
         os.makedirs(output_dir, exist_ok=True)
 
@@ -836,8 +933,8 @@ class LLaMA4Trainer:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         model_filename = f"model_{dataset}_{timestamp}.pt"
 
-        # Handle DataParallel wrapper
-        model_to_save = self.model.module if hasattr(self.model, "module") else self.model
+        # Use raw model (unwrapped, original model)
+        model_to_save = self.raw_model
 
         # Save model state dict
         torch.save(

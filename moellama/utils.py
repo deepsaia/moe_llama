@@ -343,3 +343,144 @@ def set_seed(seed=42):
         torch.backends.cudnn.benchmark = False
 
     logger.info(f"Random seed set to {seed}")
+
+
+def is_ddp():
+    """
+    Check if running in Distributed Data Parallel mode.
+
+    DDP is detected by checking if RANK environment variable is set
+    (typically by torchrun launcher).
+
+    Returns:
+        Boolean indicating if DDP is active
+    """
+    return int(os.environ.get('RANK', -1)) != -1
+
+
+def get_dist_info():
+    """
+    Get distributed training information from environment variables.
+
+    When using torchrun, these environment variables are automatically set:
+    - RANK: Global rank of this process (0 to world_size-1)
+    - LOCAL_RANK: Local rank on this machine (0 to local_world_size-1)
+    - WORLD_SIZE: Total number of processes across all machines
+
+    Returns:
+        Tuple of (is_ddp, ddp_rank, ddp_local_rank, ddp_world_size)
+        - is_ddp: Boolean indicating if DDP is active
+        - ddp_rank: Global rank (0 if not DDP)
+        - ddp_local_rank: Local rank (0 if not DDP)
+        - ddp_world_size: World size (1 if not DDP)
+
+    Example:
+        >>> is_ddp, rank, local_rank, world_size = get_dist_info()
+        >>> if rank == 0:
+        ...     print("I'm the master process")
+    """
+    if is_ddp():
+        # Verify all required environment variables are present
+        required_vars = ['RANK', 'LOCAL_RANK', 'WORLD_SIZE']
+        if not all(var in os.environ for var in required_vars):
+            logger.error(
+                "DDP mode detected but missing environment variables. "
+                f"Required: {required_vars}"
+            )
+            raise RuntimeError("Incomplete DDP environment variables")
+
+        ddp_rank = int(os.environ['RANK'])
+        ddp_local_rank = int(os.environ['LOCAL_RANK'])
+        ddp_world_size = int(os.environ['WORLD_SIZE'])
+
+        return True, ddp_rank, ddp_local_rank, ddp_world_size
+    else:
+        return False, 0, 0, 1
+
+
+def setup_distributed(device_type='cuda'):
+    """
+    Initialize distributed training (DDP).
+
+    This should be called before creating the model. It:
+    1. Gets distribution info from environment
+    2. Initializes the process group
+    3. Sets the correct device for this rank
+
+    Args:
+        device_type: Device type ('cuda', 'cpu', 'mps')
+
+    Returns:
+        Tuple of (is_ddp, ddp_rank, ddp_local_rank, ddp_world_size, device)
+
+    Example:
+        Launch with torchrun:
+        ```bash
+        torchrun --nproc_per_node=4 train.py
+        ```
+
+        In your training script:
+        ```python
+        is_ddp, rank, local_rank, world_size, device = setup_distributed('cuda')
+        model = Model().to(device)
+        if is_ddp:
+            model = DDP(model, device_ids=[local_rank])
+        ```
+    """
+    is_distributed, ddp_rank, ddp_local_rank, ddp_world_size = get_dist_info()
+
+    if is_distributed:
+        logger.info(f"Initializing DDP: rank={ddp_rank}, local_rank={ddp_local_rank}, world_size={ddp_world_size}")
+
+        # DDP only supports CUDA currently
+        if device_type == 'cuda':
+            if not torch.cuda.is_available():
+                raise RuntimeError("DDP requires CUDA but torch.cuda.is_available() is False")
+
+            # Set device for this rank
+            device = torch.device(f'cuda:{ddp_local_rank}')
+            torch.cuda.set_device(device)
+
+            # Initialize process group with NCCL backend (optimized for NVIDIA GPUs)
+            import torch.distributed as dist
+            dist.init_process_group(backend='nccl')
+
+            if ddp_rank == 0:
+                logger.info(f"✓ DDP initialized with NCCL backend ({ddp_world_size} GPUs)")
+        else:
+            logger.warning(
+                f"DDP requested with device_type='{device_type}', but DDP only supports CUDA. "
+                "Falling back to single-device training."
+            )
+            is_distributed = False
+            ddp_rank = 0
+            ddp_local_rank = 0
+            ddp_world_size = 1
+            device = torch.device(device_type)
+    else:
+        # Not distributed - single device
+        device = torch.device(device_type)
+        logger.info(f"Single-device mode: {device}")
+
+    return is_distributed, ddp_rank, ddp_local_rank, ddp_world_size, device
+
+
+def cleanup_distributed():
+    """
+    Clean up distributed training resources.
+
+    Call this at the end of training to properly shut down the process group.
+
+    Example:
+        ```python
+        try:
+            # ... training code ...
+            pass
+        finally:
+            cleanup_distributed()
+        ```
+    """
+    if is_ddp():
+        import torch.distributed as dist
+        dist.destroy_process_group()
+        logger.info("DDP process group destroyed")
